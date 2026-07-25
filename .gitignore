@@ -1,0 +1,10 @@
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

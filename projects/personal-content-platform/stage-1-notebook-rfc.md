@@ -20,10 +20,10 @@ No user notebook content will be stored in Sanity.
 
 - `tripideas-architecture` owns this RFC and subsequent cross-repository decisions.
 - `tripideas-mobile` owns the authenticated notebook experience, local cache, offline queue, photo selection, upload state, and native share sheet.
-- `tripideas-api` is the preferred owner of authenticated Notebook endpoints and user-data database access, subject to the focused audit required before implementation.
+- `tripideas-api` is the confirmed owner of authenticated Notebook endpoints and user-data database access, subject to operational preflight before implementation.
 - `tripideas-web` owns the public shared-notebook page.
 - `tripideas-cms` remains a read-only source of editorial place identifiers and presentation projections.
-- The existing WorkOS-authenticated API at `api.tripideas.nz` is currently consumed by mobile and web, but its implementation source is not present in the four repositories.
+- The WorkOS-authenticated API source is `tripideasnz/tripideas-api`. Its default `main` branch is stale relative to the descendant `staging` branch, which contains the current mobile authentication and API work. The actual Railway branch-to-environment mapping must be reconciled before implementation or deployment.
 
 ## Audit findings
 
@@ -32,9 +32,11 @@ No user notebook content will be stored in Sanity.
 - Mobile uses WorkOS OAuth with PKCE through `/auth/mobile/authorize`, `/auth/mobile/exchange`, and `/auth/mobile/refresh`.
 - The mobile access token is held in memory and sent as `Authorization: Bearer <token>`. Refresh tokens and the cached user are stored in Expo SecureStore.
 - Both mobile and web consume `/auth/identity`, whose response contains `id`, `email`, and `name`.
-- Mobile treats the returned WorkOS user `id` as `AuthUser.id` and `session.userId`. This is the stable owner identifier available to notebooks.
+- `/auth/identity` returns the API's internal `User.id`, generated as a `user_...` TypeID. This is the stable database owner identifier available to notebooks.
+- `User.authId` maps the internal user to the WorkOS subject. It is used to resolve authentication into an internal user and must not be used directly as the Notebook foreign key.
 - Server ownership must always be derived from the verified authenticated identity. An `ownerUserId` supplied in a request body must be ignored or rejected.
-- The WorkOS token-verification and account-deletion implementations are not in the audited repositories. Mobile sign-out is currently local-only because a mobile logout endpoint is not implemented.
+- The `staging` branch implements WorkOS PKCE mobile authorisation, code exchange, refresh, bearer authentication, `/auth/identity`, mobile logout and account deletion. `main` has cookie-only web authentication.
+- Mobile bearer verification uses the WorkOS JWKS, but expected issuer and audience are not passed explicitly to JWT verification. Explicit issuer and audience validation is a security prerequisite.
 
 ### Mobile API conventions
 
@@ -48,19 +50,20 @@ No user notebook content will be stored in Sanity.
 - The mobile repository contains local Trip Ideas stored as JSON in AsyncStorage, using client-generated IDs, ordered place arrays, and immediate local updates.
 - The broader current Trip Idea sharing system supports a public read-only recipient view without login. Actions beyond basic viewing may prompt the recipient to create or use a TripIdeas account.
 - After login, a recipient can access the Trip Idea through a shared Trip Ideas area. Authenticated participants may add messages and make changes.
-- Shared Trip Idea and collaboration data are currently backed by Sanity.
+- Current Trip Idea persistence is split: mobile keeps local Trip Ideas in AsyncStorage; the API stores authenticated favourite collections, membership shares and comments in Postgres; and Sanity participates in the broader public/shared presentation and collaboration system.
 - This is a collaboration-oriented lifecycle, not merely an unauthenticated static page. It should remain unchanged during Notebook Phase 1.
-- It should not be copied as the Notebook storage or permission model because it is designed around Trip Idea collaboration, ties user-created collaboration data to Sanity, and does not provide the preferred ownership, quota, deletion, or reusable photo-asset lifecycle for frequently edited personal notebooks.
+- It should not be copied as the Notebook storage or permission model because it spans local, Postgres and Sanity-backed concerns, is designed around Trip Idea collaboration, and does not provide the preferred ownership, quota, deletion, or reusable photo-asset lifecycle for frequently edited personal notebooks.
 - Notebook Phase 1 instead requires owner-controlled, revocable read-only capability links and deliberately excludes authenticated recipient collaboration.
 - Reusable presentation patterns include the public-page layout, recipient journey and login prompts where appropriate, native mobile share sheet, place-card rendering, responsive read-only presentation, and editorial place links.
 
 ### Postgres and migration conventions
 
-- `tripideas-web` has the `postgres` package and a `DATABASE_URL`-backed singleton for the Nearby Places access graph.
-- The only visible SQL migrations are numbered raw SQL files for that access graph. They are script-oriented and not evidence of the production user-data API migration process.
-- Web itinerary models use client-side SignalDB/IndexedDB and synchronise to the external authenticated API. They do not define the server database schema.
-- The generated API contract refers to user-owned itineraries, favourites, collections, and account deletion, confirming that an operational user-data backend exists elsewhere.
-- The production migration runner, transaction conventions, backup policy, and user-data database ownership cannot be verified without the missing API source.
+- `tripideas-api` uses PostgreSQL through `DATABASE_URL`.
+- Prisma owns the declarative schema and checked-in timestamped migrations. Prisma also generates Kysely database types and Zod schemas.
+- Runtime database access uses Kysely with the `pg` driver.
+- Both repository Railway configurations declare `bunx prisma migrate deploy` as the pre-deployment migration command.
+- The Docker health check currently runs `bunx prisma db push --skip-generate`. This is schema-mutating and must be replaced by a strictly non-mutating health check before Notebook migrations.
+- The database provider and owner, branch-to-environment mapping, staging/production isolation, migration approval owner, backup policy and restore process remain operationally unconfirmed.
 
 ### Object storage and image upload
 
@@ -100,14 +103,18 @@ No user notebook content will be stored in Sanity.
 
 ### Error reporting, analytics, and logging
 
-- Both apps use `console` logging with feature prefixes. Web supports limited configurable fetch/performance logging.
+- The API uses Winston, with JSON console output in production, while both apps also use `console` logging with feature prefixes.
+- The `staging` authentication middleware contains temporary logs with WorkOS IDs, internal user IDs and email addresses. These must be removed before Notebook implementation or deployment.
 - No Sentry, product analytics, structured telemetry service, or privacy-aware event pipeline is installed.
 - Stage 1 should introduce structured server logs with request IDs and non-sensitive event names. Photo bytes, text content, captions, tokens, emails, storage keys, and bearer credentials must never be logged.
 - Product analytics is optional for initial rollout; operational counts and failures are required before enabling photos broadly.
 
 ### Deletion and account data
 
-- Web exposes `DELETE /auth/delete` through the external API and warns that account data is permanently removed, but its cascade and retention behaviour cannot be audited.
+- `tripideas-api` exposes authenticated `DELETE /auth/delete`. It manually deletes selected Postgres records in a transaction, then deletes the WorkOS user and clears the web session cookie.
+- Current account deletion does not satisfy the approved recovery model: it hard-deletes the internal user, has no deletion status/job tracking or recovery state, and has no documented retention or backup-expiry treatment.
+- Itinerary deletion is commented out in the account-deletion routine while the user foreign key is restrictive, so users with itineraries may block deletion.
+- Cascade behaviour is mixed between database constraints and manual deletion. Local database deletion also occurs before WorkOS deletion, allowing a partially completed operation if WorkOS deletion fails.
 - Mobile clears authentication secrets at sign-out but intentionally retains per-user favourites as a cache. Trip Ideas are not user-scoped.
 - Existing Trip Idea sharing has different collaboration, access, and Sanity-backed lifecycle semantics. Its precise revocation and deletion guarantees are not defined in the audited repositories.
 - Notebook deletion must revoke sharing immediately, hide the notebook from normal reads, clear or invalidate mobile cache, and schedule unreferenced photo assets for delayed deletion.
@@ -115,7 +122,7 @@ No user notebook content will be stored in Sanity.
 
 ### Genuine blockers and decisions
 
-The API-host preference, database preference, and schema-level deletion architecture are approved. Milestone 1 remains blocked only until the `tripideas-api` audit confirms repository ownership, WorkOS verification, user-data Postgres provider and environments, migration conventions, backup/restore arrangements, account-deletion behaviour, and retention constraints. Object storage and processing remain deliberately deferred, and mobile sign-out cache handling remains open before Milestone 2.
+The API host, internal owner identity, PostgreSQL/Prisma/Kysely architecture, configurable deletion-state direction and text-only Milestone 1 boundary are approved. Before the Notebook migration, operations must reconcile the deployed branches and environments, confirm database ownership and isolation, document migration and backup/restore ownership, replace the schema-mutating Docker health check, explicitly validate WorkOS issuer and audience, and remove sensitive authentication debug logging. Exact recovery, retention and backup periods remain unresolved. Object storage and processing remain deliberately deferred, and mobile sign-out cache handling remains open before Milestone 2.
 
 ## Scope
 
@@ -260,7 +267,7 @@ The following is the logical schema. Exact SQL types and migration syntax must b
 | Column | Constraint/purpose |
 | --- | --- |
 | `id` | UUID primary key |
-| `owner_user_id` | Stable WorkOS user ID, indexed |
+| `owner_user_id` | Foreign key to internal `User.id`, indexed |
 | `title` | Required, trimmed, maximum 200 characters |
 | `description` | Optional, maximum 10,000 characters |
 | `visibility` | `private` or `shared`; default `private` |
@@ -294,7 +301,7 @@ Database checks enforce valid field combinations for each type. Reorder operatio
 | Column | Constraint/purpose |
 | --- | --- |
 | `id` | UUID primary key and stable reusable asset ID |
-| `owner_user_id` | Stable WorkOS user ID, indexed |
+| `owner_user_id` | Foreign key to internal `User.id`, indexed |
 | `storage_key` | Private processed-image object key |
 | `thumbnail_storage_key` | Private thumbnail object key |
 | `mime_type` | Allowlisted processed output type |
@@ -418,7 +425,7 @@ The public response contains notebook title/description, ordered content, displa
 ## Authentication and authorisation
 
 - Authenticated routes require the existing WorkOS session or bearer token.
-- The API validates the token/session and derives the stable WorkOS user ID before any query.
+- The API validates the token/session, resolves `User.authId` from the WorkOS subject, and derives the internal `User.id` before any query.
 - Every owner query includes both resource ID and derived `owner_user_id`; existence must not grant access.
 - Child resource writes verify the parent notebook owner, not merely the item or asset ID.
 - Public token reads are the sole unauthenticated notebook operation.
@@ -451,7 +458,7 @@ Notebook sharing is a revocable read-only capability-link model:
 
 - Current Trip Idea sharing remains unchanged during Notebook Phase 1.
 - Its public-page layout, recipient journey, login prompts, mobile share-sheet behaviour, place-card rendering, and other useful presentation patterns may be reused.
-- Its Sanity-backed user-content storage and authenticated collaboration model must not be copied into the Notebook implementation.
+- Its split local, Postgres and Sanity-backed persistence and authenticated collaboration model must not be copied into the Notebook implementation.
 - Notebook token, permission, and public-view boundaries should remain clean enough to inform a future shared access service for Notebooks, Trip Ideas, and itineraries.
 - Future convergence is not a dependency, deliverable, migration, or scope expansion for Phase 1.
 
@@ -538,17 +545,20 @@ These are approved safety and abuse-control boundaries, not a prominent commerci
 
 ### Preflight
 
-1. Locate and audit the preferred `tripideas-api` source and WorkOS verification.
-2. Confirm the existing user-data Postgres provider, ownership, staging/production separation, migration conventions, and backup/restore arrangements.
-3. Confirm how the approved Notebook deletion cascade integrates with current account deletion; leave exact recovery and backup-expiry periods unresolved until the infrastructure audit.
-4. Present the focused audit and Milestone 1 plan for review before implementation.
+1. Reconcile `main`, `staging` and the actual Railway deployment branches without blindly merging or deploying either branch.
+2. Confirm the user-data Postgres provider, ownership, staging/production separation, migration approval and backup/restore arrangements.
+3. Replace the schema-mutating Docker health check with a strictly non-mutating database readiness check.
+4. Explicitly validate the expected WorkOS issuer and audience for mobile bearer tokens and remove sensitive authentication debug logging.
+5. Confirm how Notebook deletion states integrate with current account deletion; leave exact recovery and backup-expiry periods unresolved until the infrastructure audit.
+6. Review and approve the file-level infrastructure preflight plan before implementation.
 
 ### Milestone 1 — Data and API foundation
 
 - Add notebook, text-item, versioning, ownership, and deletion migrations.
 - Implement authenticated notebook CRUD and ordering.
 - Add schema, ownership, malformed-request, and concurrency tests.
-- Do not include photos.
+- Use internal `User.id` ownership and configurable `active`, `deletion_requested`, recoverable soft-deleted and permanently deleted states.
+- Do not include photos, object storage, public share links, mobile UI, Trip Idea changes or collaboration.
 
 ### Milestone 2 — Mobile text notebook
 
@@ -668,8 +678,9 @@ The following decision status is approved. No provider or infrastructure is crea
 
 | Decision | Approved direction | Audit question or remaining choice | Required by |
 | --- | --- | --- | --- |
-| Authenticated API host | Prefer `tripideas-api`; do not create a second authenticated API unless the audit invalidates this assumption. | Confirm repository ownership, deployment path, WorkOS bearer verification, route conventions, and capacity to add Notebook endpoints. | Before Milestone 1 |
-| User-data Postgres | Prefer the existing API-owned user-data Postgres. | Confirm provider and owner, staging/production separation, schema and migration tooling, migration deployment, backup/restore arrangements, and whether Notebook tables fit the existing boundary. | Before Milestone 1 |
+| Authenticated API host | Use `tripideas-api`; do not create a second authenticated API. | Reconcile `main`, `staging` and the actual Railway deployment branches; harden WorkOS issuer/audience verification and logging. | Before Milestone 1 |
+| Notebook owner identity | Reference internal `User.id`; use `User.authId` only to map a verified WorkOS subject to the internal user. | None at the architecture level. | Milestone 1 |
+| User-data Postgres | Use the existing PostgreSQL, Prisma migration and Kysely runtime-query architecture. | Confirm provider and owner, staging/production separation, migration approval/deployment ownership, and backup/restore arrangements. | Before Milestone 1 |
 | Account deletion and retention | Immediately invalidate authenticated access and capability links; support documented soft deletion/recovery; asynchronously clean unreferenced photo assets; allow backups to expire under policy. | Confirm current cascade integration, recovery mechanism, backup restoration behaviour, legal/operational retention, and exact periods. Exact periods remain unresolved. | Schema integration before Milestone 1; asset details before Milestone 3; operational periods before rollout |
 | Object storage and image processing | Keep the approved provider-neutral photo policy; defer provider selection. | Select provider, upload, processing, validation, delivery, and lifecycle infrastructure during the photo milestone. | Before Milestone 3 |
 | Mobile sign-out behaviour | No decision recorded by this approval. Another account must never read cached notebook data. | Choose clearing versus encrypted per-user retention and define treatment of unsynced text and pending photos. | Before Milestone 2 |

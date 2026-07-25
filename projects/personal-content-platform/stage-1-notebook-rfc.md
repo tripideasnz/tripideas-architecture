@@ -2,9 +2,9 @@
 
 ## Status
 
-Draft for approval
+Approved
 
-Date: 2026-07-25
+Approved: 2026-07-25
 
 ## Summary
 
@@ -12,7 +12,7 @@ Stage 1 adds private, cloud-synchronised travel notebooks to the TripIdeas mobil
 
 This RFC deliberately stops at the Phase 1 product boundary. It does not add user-created places, Trip Idea integration, collaboration, public profiles or feeds, publishing products, licensing, itinerary features, behavioural personalisation, location tracking, or AI assistance.
 
-Remaining implementation decisions are captured in a recommendation table at the end of this RFC. API ownership and user-data Postgres conventions block Milestone 1; sign-out cache policy blocks the mobile milestone; object storage and image processing may wait until the photo milestone; final capability-link delivery details may wait until sharing.
+The preferred authenticated API host is `tripideas-api`, using its existing user-data Postgres where the API audit confirms ownership and operational suitability. Exact retention periods remain unresolved pending that audit. Object-storage provider selection remains deferred until the photo milestone.
 
 No user notebook content will be stored in Sanity.
 
@@ -20,7 +20,8 @@ No user notebook content will be stored in Sanity.
 
 - `tripideas-architecture` owns this RFC and subsequent cross-repository decisions.
 - `tripideas-mobile` owns the authenticated notebook experience, local cache, offline queue, photo selection, upload state, and native share sheet.
-- `tripideas-web` owns the public shared-notebook page and, subject to the API-hosting decision, server-side notebook API and database access.
+- `tripideas-api` is the preferred owner of authenticated Notebook endpoints and user-data database access, subject to the focused audit required before implementation.
+- `tripideas-web` owns the public shared-notebook page.
 - `tripideas-cms` remains a read-only source of editorial place identifiers and presentation projections.
 - The existing WorkOS-authenticated API at `api.tripideas.nz` is currently consumed by mobile and web, but its implementation source is not present in the four repositories.
 
@@ -114,7 +115,7 @@ No user notebook content will be stored in Sanity.
 
 ### Genuine blockers and decisions
 
-The remaining blockers concern implementation ownership and infrastructure rather than product scope: authenticated API hosting, user-data Postgres conventions, object storage and processing, account-deletion retention, and mobile sign-out cache handling. The decision table at the end of this RFC recommends a path and identifies the milestone by which each must be resolved.
+The API-host preference, database preference, and schema-level deletion architecture are approved. Milestone 1 remains blocked only until the `tripideas-api` audit confirms repository ownership, WorkOS verification, user-data Postgres provider and environments, migration conventions, backup/restore arrangements, account-deletion behaviour, and retention constraints. Object storage and processing remain deliberately deferred, and mobile sign-out cache handling remains open before Milestone 2.
 
 ## Scope
 
@@ -537,10 +538,10 @@ These are approved safety and abuse-control boundaries, not a prominent commerci
 
 ### Preflight
 
-1. Resolve API source/hosting and WorkOS verification.
-2. Confirm user-data Postgres and migration/backup conventions.
-3. Define privacy retention and account-deletion cascade.
-4. Approve this RFC.
+1. Locate and audit the preferred `tripideas-api` source and WorkOS verification.
+2. Confirm the existing user-data Postgres provider, ownership, staging/production separation, migration conventions, and backup/restore arrangements.
+3. Confirm how the approved Notebook deletion cascade integrates with current account deletion; leave exact recovery and backup-expiry periods unresolved until the infrastructure audit.
+4. Present the focused audit and Milestone 1 plan for review before implementation.
 
 ### Milestone 1 — Data and API foundation
 
@@ -661,17 +662,18 @@ Each milestone must present exact files, migrations, services, test results, and
 8. Preserve a server-side kill switch for new uploads and new share creation without making existing private notebooks unavailable.
 9. Do not migrate existing local Trip Ideas into notebooks during Stage 1.
 
-## Unresolved decisions
+## Architecture decisions and remaining audit questions
 
-Approved product choices have been incorporated above. The following implementation decisions remain open; no provider or infrastructure is selected by this RFC.
+The following decision status is approved. No provider or infrastructure is created or selected by this RFC.
 
-| Decision | Recommended option | Alternatives | Reasons and implications | Required by |
-| --- | --- | --- | --- | --- |
-| Authenticated API host | Locate and include the existing `tripideas-api` source, then add Notebook endpoints beside the current WorkOS identity and user-data APIs. | Approve `tripideas-web` as the authenticated Notebook API host and add a first-class WorkOS bearer/cookie verification boundary there. | Reusing the existing API keeps one stable identity, account-deletion boundary, and mobile API host. The source is currently unavailable, so ownership, tests, deployment, and token verification cannot be inspected. Hosting in web is viable only with explicit auth verification and operational ownership; forwarding identity to an unknown service on every write is not an acceptable implicit design. | Before Milestone 1 |
-| User-data Postgres | Use the existing operational user-data Postgres owned by the authenticated API, with separate staging and production databases and that service’s established migration runner, transactional conventions, backups, restore tests, and migration owner. | Create a new Notebook-specific Postgres database; or place tables in the web access-graph database. | A shared user-data database best supports ownership and account-deletion cascades. A separate database increases cross-service deletion and identity coordination. The Nearby Places access-graph database has a different operational purpose and should not be reused without explicit approval. Provider, environment, migration tooling, promotion, rollback, backup, and restore details remain unverified. | Before Milestone 1 |
-| Object storage and image processing | Select private object storage with short-lived signed direct uploads; process asynchronously in a controlled server worker; generate the approved notebook image and thumbnail; validate decoded content; strip metadata; and run lifecycle cleanup from database state. | Proxy uploads through the API; or use a managed media-processing service that satisfies ownership, privacy, deletion, and cost requirements. | Direct upload avoids routing 20 MB files through application request limits. A worker provides bounded processing and retry. Provider, region, malware/corrupt-file controls, signed-read strategy, thumbnail runtime, delivery, and deletion lifecycle require approval. The approved 1 GB allowance and image dimensions remain provider-neutral. | Before Milestone 3; signed-image revocation behaviour before Milestone 6 |
-| Account deletion and retention | In one authoritative account-deletion workflow, immediately invalidate public links and owner access, transactionally soft-delete notebooks/items, schedule unreferenced assets, then hard-delete database and object data after a documented grace period; expire backups on a published restoration window. | Immediate hard deletion everywhere; or anonymisation/longer operational retention where legally required. | A short grace period supports recovery and safe asynchronous asset cleanup while immediate access revocation protects privacy. The existing deletion endpoint’s cascades, legal holds, backup windows, restoration rules, and completion reporting are unknown. Restores must preserve deletion tombstones so revoked content does not reappear. | Schema and cascade decision before Milestone 1; asset details before Milestone 3; operational policy before rollout |
-| Mobile sign-out behaviour | Require the user to resolve, sync, or explicitly discard unsynced edits/pending photos before sign-out, then remove notebook snapshots, mutation queues, and pending files from readable local storage. | Retain a per-user cache encrypted with account-bound key material; or retain only namespaced unencrypted data. | Clearing is the safest initial shared-device policy and avoids claiming encryption that does not exist. It sacrifices instant offline return after sign-in. Encrypted retention could be added later after key lifecycle and recovery are designed. Namespacing alone prevents accidental account mixing but does not protect local content at rest. | Before Milestone 2; may wait until after Milestone 1 |
+| Decision | Approved direction | Audit question or remaining choice | Required by |
+| --- | --- | --- | --- |
+| Authenticated API host | Prefer `tripideas-api`; do not create a second authenticated API unless the audit invalidates this assumption. | Confirm repository ownership, deployment path, WorkOS bearer verification, route conventions, and capacity to add Notebook endpoints. | Before Milestone 1 |
+| User-data Postgres | Prefer the existing API-owned user-data Postgres. | Confirm provider and owner, staging/production separation, schema and migration tooling, migration deployment, backup/restore arrangements, and whether Notebook tables fit the existing boundary. | Before Milestone 1 |
+| Account deletion and retention | Immediately invalidate authenticated access and capability links; support documented soft deletion/recovery; asynchronously clean unreferenced photo assets; allow backups to expire under policy. | Confirm current cascade integration, recovery mechanism, backup restoration behaviour, legal/operational retention, and exact periods. Exact periods remain unresolved. | Schema integration before Milestone 1; asset details before Milestone 3; operational periods before rollout |
+| Object storage and image processing | Keep the approved provider-neutral photo policy; defer provider selection. | Select provider, upload, processing, validation, delivery, and lifecycle infrastructure during the photo milestone. | Before Milestone 3 |
+| Mobile sign-out behaviour | No decision recorded by this approval. Another account must never read cached notebook data. | Choose clearing versus encrypted per-user retention and define treatment of unsynced text and pending photos. | Before Milestone 2 |
+| Existing Trip Idea sharing | Leave its sharing, collaboration, and Sanity storage unchanged during Notebook Phase 1. | Future convergence remains an architectural opportunity only. | Outside Phase 1 |
 
 Additional sharing details may wait until Milestone 6:
 
@@ -679,6 +681,6 @@ Additional sharing details may wait until Milestone 6:
 - Approve the minimal signed-image URL lifetime after revocation, or require each image read to validate the active capability.
 - Confirm one active capability link per notebook in Phase 1; this RFC recommends one, with replacement implemented as revoke then create.
 
-## Approval requested
+## Approval recorded
 
-Approval of this RFC authorises planning Milestone 1 only. It does not authorise production migrations, cloud resource creation, credential changes, deployment, or implementation of later milestones.
+The Phase 1 Notebook RFC and the decisions above were approved on 2026-07-25. Approval authorises the focused `tripideas-api` audit and preparation of a Milestone 1 implementation plan only. It does not authorise migrations, schema changes, cloud resource creation, credential changes, deployment, or implementation code.

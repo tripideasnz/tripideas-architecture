@@ -10,14 +10,16 @@ Operational discovery and implementation planning only. Unresolved values must b
 | --- | --- |
 | Repository | `github.com/tripideasnz/tripideas-api` |
 | Default branch | `main` at audit commit `5fed204` |
-| Newer descendant branch | `staging` at audit commit `29c8e0e` |
+| Production baseline | `main` |
+| Development/integration environment | `staging` at audit commit `29c8e0e` |
+| Notebook development target | Staging WorkOS and staging API infrastructure |
 | Database interface | PostgreSQL via `DATABASE_URL` |
 | Schema and migrations | Prisma schema and checked-in timestamped migrations |
 | Runtime queries | Kysely with `pg` |
 | Repository pre-deploy command | `bunx prisma migrate deploy` in both Railway JSON files |
 | Current container health check | `bunx prisma db push --skip-generate` (schema-mutating; replacement required) |
 
-Repository configuration does not prove which branch, Railway service or database is deployed to either environment.
+The product boundary confirms the role of `main` and `staging`. Repository configuration still does not prove the live Railway service IDs, deployed commit SHAs, domains, database resources or whether a public web route can deploy independently.
 
 ## Operational decision checklist
 
@@ -27,8 +29,8 @@ Fill every unresolved field from the named authoritative control plane. Record l
 | --- | --- | --- |
 | Production Railway service | Unresolved | Railway project → production environment → service name and service ID |
 | Staging Railway service | Unresolved | Railway project → staging environment → service name and service ID |
-| Production deployment branch | Unresolved | Production service → source/deploy settings; compare deployed commit SHA with GitHub |
-| Staging deployment branch | Unresolved | Staging service → source/deploy settings; compare deployed commit SHA with GitHub |
+| Production deployment branch and SHA | Expected `main`; live value unresolved | Production service → source/deploy settings; verify deployed commit SHA |
+| Staging deployment branch and SHA | Expected `staging`; live value unresolved | Staging service → source/deploy settings; verify deployed commit SHA |
 | Production database provider and owner | Unresolved | Railway variables/reference graph and database-provider console; identify legal/operational account owner |
 | Staging database provider and owner | Unresolved | Railway variables/reference graph and database-provider console; identify legal/operational account owner |
 | Separate credentials and databases | Unresolved | Compare secret identities, database resource IDs, hosts and database names without recording secret values |
@@ -42,10 +44,14 @@ Fill every unresolved field from the named authoritative control plane. Record l
 | Account-deletion recovery period | Unresolved | Product/legal/operations decision supported by restore capabilities |
 | Permanent-deletion timing | Unresolved | Product/legal/operations decision and deletion-worker operating contract |
 | Backup-expiry treatment | Unresolved | Document whether deleted data is left to expire, how restores reapply tombstones, and any legal holds |
+| Production web Railway service | Unresolved | Railway production environment → web service name, service ID, source branch and deployed SHA |
+| Staging web Railway service | Unresolved | Railway staging environment → web service name, service ID, source branch and deployed SHA |
+| Web domain/routing ownership | Unresolved | Railway domains, proxy/routing rules and DNS for production and staging |
+| Independent route deployment | Not demonstrated by repository configuration | Determine whether `/notebook/*` can target a distinct service without promoting the full staging web build |
 
 ## Manual inspection sequence
 
-1. In GitHub, inspect the default branch, branch protections, open divergence between `main` and `staging`, environment rules, deploy integrations and the commit SHA currently reported by each deployment.
+1. In GitHub, inspect branch protections, environment rules, deploy integrations and the commit SHA currently reported by each deployment. Preserve `main` as the production baseline and `staging` as the intentional development/integration environment.
 2. In Railway, open the actual production and staging environments. Record project, environment and service IDs; source repository and branch; deployed commit SHA; pre-deploy command; health check; domain; and variable references.
 3. Follow each environment's `DATABASE_URL` reference without exposing its value. Record the database resource/provider, owner, resource ID, region and whether production and staging are distinct resources with distinct credentials.
 4. In the database-provider console, inspect automated backups, point-in-time recovery, retention, encryption/key ownership and restore controls.
@@ -103,16 +109,44 @@ Expected issuer and audience values must be read from the authoritative WorkOS a
 - `src/lib/middleware/logger.ts`
   - Ensure request logging does not record authorization headers, cookies, tokens or sensitive query parameters.
 
-### Branch and deployment reconciliation
+### Production and staging release boundary
 
-1. Freeze assumptions: neither `main` nor `staging` is declared canonical from its name.
-2. Record both Railway services' configured branches and deployed commit SHAs.
-3. Compare `main...staging` by commit and file, including migrations and generated schema files.
-4. Inventory changes into deliberate groups: authentication, mobile APIs, bookings/Sanity integration, migrations, generated artifacts and temporary diagnostics.
-5. Identify which deployed behaviours are relied on by mobile and web.
-6. Choose a reviewed canonical branch/commit with the repository and deployment owners.
-7. Prepare a normal PR that preserves required changes and removes temporary/debug artifacts. Do not blindly merge `staging` into `main`, force-push, or deploy during reconciliation.
-8. Validate build, tests and migration status in an isolated non-production environment before changing any Railway branch setting.
+1. Treat `main` as the current production baseline and `staging` as the intentional development/integration environment.
+2. Record the API and web Railway services' configured branches, deployed commit SHAs, domains and database references.
+3. Develop Notebook against staging WorkOS and staging API infrastructure.
+4. Inventory Notebook changes separately from the existing web staging release programme.
+5. Do not merge, promote, retarget a Railway service or otherwise use Notebook work to pre-empt the current web release process.
+6. Validate Notebook infrastructure and migrations only in the confirmed staging environment until a separate production rollout is approved.
+7. Treat Notebook production rollout and broader web staging promotion as independent release decisions.
+
+## Public shared-page deployment boundary
+
+### Confirmed from repositories
+
+- `tripideas-web` is a Next.js application built as one standalone Docker image.
+- Its Railway JSON files describe whole-service Docker builds and do not define route-level or share-page services.
+- The existing public Trip Idea route, `src/app/(share)/trip/[shareId]/page.tsx`, is present on the production `main` baseline. The current `staging` branch deletes it and its supporting `src/lib/public-trip.ts` and `src/app/api/trips/share/route.ts` files relative to `main`.
+- A future public Notebook page would require only read-only capability-link rendering. No web Notebook authoring, management, account controls or navigation are allowed in Phase 1.
+- Repository evidence does not establish that either public page can be deployed independently from the full web service.
+
+### Live Railway checks required
+
+1. Record production and staging web service IDs, source branches and deployed SHAs.
+2. Record all attached domains and any path-based proxy, gateway or edge routing rules.
+3. Confirm whether Railway or the current DNS/proxy can route `/notebook/*` to a distinct service while all other production paths remain on the current production web service.
+4. Confirm whether the existing public Trip Idea route is currently served by the production web service and which commit supplies it.
+5. Confirm whether a service can deploy a restricted viewer artifact independently without changing the production web service branch.
+
+### Options to report, not select
+
+| Option | Deployment characteristic | Principal risks |
+| --- | --- | --- |
+| Add the route to `tripideas-web` | Safe only if it can ship without promoting unrelated staging work, or after the existing web release reaches production | Current repository build deploys the whole app; a route-only release is not demonstrated |
+| Serve HTML from `tripideas-api` | Could follow the independently released API path and keep authoring in mobile | Mixes presentation into the API, requires safe HTML/rendering and static-asset handling, and couples public traffic to the authenticated API service |
+| Small separate public viewer | Independent build and release boundary; can receive only `/notebook/*` traffic | New service, DNS/routing, operations, monitoring and security surface |
+| Retain the route in staging | Avoids production web interference until the existing release completes | Public sharing cannot launch to production until promotion or another viewer option is approved |
+
+Do not choose or implement an option until the live Railway service and routing layout is inspected. The follow-up report should identify the smallest option that is demonstrably deployment-safe.
 
 ## Notebook account-deletion integration
 
@@ -138,7 +172,7 @@ Separate account-level work that must be tracked:
 
 ## Exit criteria before the Notebook migration
 
-- Actual production and staging service/branch/commit mappings are recorded.
+- Actual production and staging API/web service, branch and commit mappings are recorded.
 - PostgreSQL provider, ownership and environment isolation are confirmed.
 - Migration approval/deployment ownership is recorded.
 - Backup, encryption, restore ownership and latest restore-test evidence are recorded, or their absence is accepted as an explicit blocker.
@@ -146,5 +180,6 @@ Separate account-level work that must be tracked:
 - The non-mutating health-check plan is approved.
 - WorkOS issuer/audience values and verification approach are confirmed.
 - Sensitive authentication logging removal is approved.
-- A canonical API branch strategy is approved.
+- The production/staging release boundary is recorded and Notebook work is isolated from the current web release programme.
+- Public shared-page deployment independence and routing are confirmed, or the unresolved viewer decision is explicitly deferred until Milestone 6.
 - Notebook account-deletion integration boundaries are approved.

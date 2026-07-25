@@ -8,7 +8,7 @@ Approved: 2026-07-25
 
 ## Summary
 
-Stage 1 adds private, cloud-synchronised travel notebooks to the TripIdeas mobile app. A signed-in traveller can create multiple notebooks, add ordered text and processed photos, caption photos, optionally link an item to an existing editorial place, and create or revoke a read-only capability link that anyone holding it can view without an account.
+Stage 1 adds private, cloud-synchronised travel notebooks to the TripIdeas mobile app. Notebook authoring and management are mobile-only. A signed-in traveller can create multiple notebooks, add ordered text and processed photos, caption photos, optionally link an item to an existing editorial place, and create or revoke a read-only capability link that anyone holding it can view without an account.
 
 This RFC deliberately stops at the Phase 1 product boundary. It does not add user-created places, Trip Idea integration, collaboration, public profiles or feeds, publishing products, licensing, itinerary features, behavioural personalisation, location tracking, or AI assistance.
 
@@ -19,11 +19,13 @@ No user notebook content will be stored in Sanity.
 ## Source-of-truth and repository boundaries
 
 - `tripideas-architecture` owns this RFC and subsequent cross-repository decisions.
-- `tripideas-mobile` owns the authenticated notebook experience, local cache, offline queue, photo selection, upload state, and native share sheet.
-- `tripideas-api` is the confirmed owner of authenticated Notebook endpoints and user-data database access, subject to operational preflight before implementation.
-- `tripideas-web` owns the public shared-notebook page.
+- `tripideas-mobile` owns all Notebook creation, editing, management, photo management, place linking, local cache, offline queue, upload state, and sharing controls, including the native share sheet.
+- `tripideas-api` owns authentication, ownership enforcement, Notebook CRUD, user-data database access, photo infrastructure and share-token management, subject to operational preflight before implementation.
+- A web-accessible component is required only for the unauthenticated read-only public shared-notebook page. It may use `tripideas-web` only if that route can be deployed without pre-empting the existing staging-to-production web programme.
+- `tripideas-web` must not gain Notebook navigation, account controls, authoring, editing or management during Phase 1. Future web authoring requires a separate product decision and is outside the current roadmap.
 - `tripideas-cms` remains a read-only source of editorial place identifiers and presentation projections.
-- The WorkOS-authenticated API source is `tripideasnz/tripideas-api`. Its default `main` branch is stale relative to the descendant `staging` branch, which contains the current mobile authentication and API work. The actual Railway branch-to-environment mapping must be reconciled before implementation or deployment.
+- The WorkOS-authenticated API source is `tripideasnz/tripideas-api`. `main` is the current production baseline and `staging` is the intentional development/integration environment. WorkOS mobile authentication and newer mobile-facing capabilities currently exist in `staging`; Notebook development occurs against staging WorkOS and staging API infrastructure.
+- Notebook work must not merge, promote or otherwise pre-empt the current web staging-to-production release process. Notebook production rollout is a separate release decision.
 
 ## Audit findings
 
@@ -99,7 +101,22 @@ No user notebook content will be stored in Sanity.
 - Local server routes live under `src/app/api/**/route.ts`, validate input, return `NextResponse.json`, and keep secrets server-side.
 - Public shared pages use route groups, dynamic parameters, `force-dynamic`, and no-store reads.
 - The typed web API client talks to `SERVER_API_URL` or `NEXT_PUBLIC_API_URL`; most authenticated APIs are external rather than Next.js route handlers.
-- The shared notebook route should follow the current dynamic/no-store pattern and add explicit search-engine exclusion.
+- The existing public Trip Idea page is `src/app/(share)/trip/[shareId]/page.tsx` on the production `main` baseline. The current `staging` branch deletes that route and its supporting `src/lib/public-trip.ts` and `src/app/api/trips/share/route.ts` files relative to `main`.
+- The repository builds all Next.js routes into one standalone Docker image and contains no route-specific Railway service configuration. Repository evidence therefore does not show that either the existing public Trip Idea route or a future public Notebook route can be deployed independently from the full web service.
+- The shared Notebook route should follow the current dynamic/no-store pattern and add explicit search-engine exclusion only if `tripideas-web` is confirmed as the deployment-safe host.
+
+### Mobile-only product and web deployment boundary
+
+- Notebook creation, editing, management, photo handling, place linking, offline behaviour and sharing controls exist only in `tripideas-mobile` during Phase 1.
+- Notebook must not appear in normal production web navigation or as a production web-app account feature.
+- `tripideas-web` must not receive Notebook navigation, editing screens, account controls or authoring functionality.
+- The only required browser experience is the read-only public shared-notebook page for capability-link holders.
+- A public route may be added to `tripideas-web` only if Railway can deploy it without promoting unrelated staging web work or disrupting the current web release programme.
+- If it cannot deploy independently, the deployment-safe alternatives to evaluate are serving the read-only page from `tripideas-api`, deploying a small separate public Notebook viewer, or retaining the route in staging until the existing web release reaches production.
+- No host alternative is selected by this RFC. The smallest deployment-safe option must be reported after the live Railway service, branch, domain and routing layout is inspected.
+- Mobile Notebook development may proceed against staging WorkOS and staging API infrastructure while the public viewer decision remains unresolved.
+- Notebook production rollout is independent of the broader web staging promotion.
+- Any future web Notebook authoring or management requires a separate product and roadmap decision.
 
 ### Error reporting, analytics, and logging
 
@@ -122,7 +139,7 @@ No user notebook content will be stored in Sanity.
 
 ### Genuine blockers and decisions
 
-The API host, internal owner identity, PostgreSQL/Prisma/Kysely architecture, configurable deletion-state direction and text-only Milestone 1 boundary are approved. Before the Notebook migration, operations must reconcile the deployed branches and environments, confirm database ownership and isolation, document migration and backup/restore ownership, replace the schema-mutating Docker health check, explicitly validate WorkOS issuer and audience, and remove sensitive authentication debug logging. Exact recovery, retention and backup periods remain unresolved. Object storage and processing remain deliberately deferred, and mobile sign-out cache handling remains open before Milestone 2.
+The API host, internal owner identity, PostgreSQL/Prisma/Kysely architecture, configurable deletion-state direction and text-only Milestone 1 boundary are approved. Before the Notebook migration, operations must confirm the live production/staging service mappings while preserving their intentional release roles, confirm database ownership and isolation, document migration and backup/restore ownership, replace the schema-mutating Docker health check, explicitly validate WorkOS issuer and audience, and remove sensitive authentication debug logging. Exact recovery, retention and backup periods remain unresolved. Object storage and processing remain deliberately deferred, and mobile sign-out cache handling remains open before Milestone 2.
 
 ## Scope
 
@@ -247,6 +264,8 @@ Public web
 ```
 
 The Notebook list shows title, first available thumbnail, updated date, useful item/photo count, and private/shared state. The editor should feel like a document with insert actions, not a schema form.
+
+The public route in this hierarchy is a standalone read-only recipient surface, not entry into a web Notebook product. It must not add Notebook navigation or authenticated Notebook management to the production website.
 
 ## Data ownership and systems of record
 
@@ -545,12 +564,13 @@ These are approved safety and abuse-control boundaries, not a prominent commerci
 
 ### Preflight
 
-1. Reconcile `main`, `staging` and the actual Railway deployment branches without blindly merging or deploying either branch.
+1. Record the live Railway services, deployment branches, commit SHAs, domains and routing while preserving `main` as the production baseline and `staging` as the intentional development/integration environment.
 2. Confirm the user-data Postgres provider, ownership, staging/production separation, migration approval and backup/restore arrangements.
 3. Replace the schema-mutating Docker health check with a strictly non-mutating database readiness check.
 4. Explicitly validate the expected WorkOS issuer and audience for mobile bearer tokens and remove sensitive authentication debug logging.
 5. Confirm how Notebook deletion states integrate with current account deletion; leave exact recovery and backup-expiry periods unresolved until the infrastructure audit.
-6. Review and approve the file-level infrastructure preflight plan before implementation.
+6. Confirm whether a public shared route can deploy independently from the full web staging branch; report the smallest deployment-safe option without selecting or implementing it.
+7. Review and approve the file-level infrastructure preflight plan before implementation.
 
 ### Milestone 1 — Data and API foundation
 
@@ -565,6 +585,7 @@ These are approved safety and abuse-control boundaries, not a prominent commerci
 - Add Notebooks under Saved using existing navigation/design conventions.
 - Add list, create, edit, delete, ordered text, per-user cache, durable queue, and conflict state.
 - Produce the first end-to-end cross-device text notebook.
+- Do not add Notebook navigation, account controls, authoring or management to `tripideas-web`.
 
 ### Milestone 3 — Photo assets and upload pipeline
 
@@ -678,13 +699,15 @@ The following decision status is approved. No provider or infrastructure is crea
 
 | Decision | Approved direction | Audit question or remaining choice | Required by |
 | --- | --- | --- | --- |
-| Authenticated API host | Use `tripideas-api`; do not create a second authenticated API. | Reconcile `main`, `staging` and the actual Railway deployment branches; harden WorkOS issuer/audience verification and logging. | Before Milestone 1 |
+| Authenticated API host | Use `tripideas-api`; do not create a second authenticated API. Develop Notebook against staging WorkOS and staging API infrastructure without pre-empting the existing production release process. | Confirm live Railway service mappings; harden WorkOS issuer/audience verification and logging. | Before Milestone 1 |
 | Notebook owner identity | Reference internal `User.id`; use `User.authId` only to map a verified WorkOS subject to the internal user. | None at the architecture level. | Milestone 1 |
 | User-data Postgres | Use the existing PostgreSQL, Prisma migration and Kysely runtime-query architecture. | Confirm provider and owner, staging/production separation, migration approval/deployment ownership, and backup/restore arrangements. | Before Milestone 1 |
 | Account deletion and retention | Immediately invalidate authenticated access and capability links; support documented soft deletion/recovery; asynchronously clean unreferenced photo assets; allow backups to expire under policy. | Confirm current cascade integration, recovery mechanism, backup restoration behaviour, legal/operational retention, and exact periods. Exact periods remain unresolved. | Schema integration before Milestone 1; asset details before Milestone 3; operational periods before rollout |
 | Object storage and image processing | Keep the approved provider-neutral photo policy; defer provider selection. | Select provider, upload, processing, validation, delivery, and lifecycle infrastructure during the photo milestone. | Before Milestone 3 |
 | Mobile sign-out behaviour | No decision recorded by this approval. Another account must never read cached notebook data. | Choose clearing versus encrypted per-user retention and define treatment of unsynced text and pending photos. | Before Milestone 2 |
 | Existing Trip Idea sharing | Leave its sharing, collaboration, and Sanity storage unchanged during Notebook Phase 1. | Future convergence remains an architectural opportunity only. | Outside Phase 1 |
+| Notebook authoring surface | Mobile-only during Phase 1; no production web navigation, account controls, editing or management. | Future web authoring requires a separate product decision. | Outside the current roadmap |
+| Public Notebook viewer | Require only a read-only browser page. Do not let its deployment pre-empt the web staging-to-production programme. | Inspect live Railway layout and report the smallest safe option among an independently deployable web route, API-hosted page, separate viewer, or staging retention. Do not select an option yet. | Before Milestone 6 |
 
 Additional sharing details may wait until Milestone 6:
 

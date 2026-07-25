@@ -170,12 +170,38 @@ Separate account-level work that must be tracked:
 | Public links | Once sharing exists, invalidate capability links immediately when notebook/account deletion is requested. Outside Milestone 1, but required by its sharing design. |
 | Backups | Let deleted data expire under the documented policy and ensure a restore reapplies deletion tombstones before restored data can become accessible. |
 
+## Staging database collation maintenance position
+
+- Local Notebook schema and API development may proceed against a disposable local PostgreSQL database.
+- No Notebook migration may be applied to staging until the collation maintenance gate below is complete.
+- The staging database is confirmed separate from production. Its private database reference is the approved maintenance target.
+- Do not use `DATABASE_PUBLIC_URL` for staging maintenance: its current reference appears to resolve to the production database. Correct or explicitly quarantine the shared or incorrect public reference before any maintenance or migration action.
+- Create a fresh staging backup immediately before collation maintenance. An isolated restore test is preferred; otherwise the accountable owner must explicitly accept the recovery risk.
+- The preferred maintenance path is to preflight affected unique values, run `REINDEX DATABASE CONCURRENTLY railway`, verify indexes, constraints and representative application reads and writes, and only then run `ALTER DATABASE railway REFRESH COLLATION VERSION`.
+- If the rebuild or verification fails, do not refresh the recorded collation version.
+
+The staging Notebook migration gate requires:
+
+1. Correct or quarantine the staging `DATABASE_PUBLIC_URL`.
+2. Assign a maintenance owner.
+3. Create a fresh backup.
+4. Verify restore capability or explicitly accept the recovery risk.
+5. Rebuild collation-dependent indexes.
+6. Verify index validity, constraints and application behaviour.
+7. Refresh the database collation version.
+8. Confirm the recorded and actual versions match with no warning.
+9. Confirm migration approval and deployment ownership.
+
 ## Exit criteria before the Notebook migration
 
 - Actual production and staging API/web service, branch and commit mappings are recorded.
 - PostgreSQL provider, ownership and environment isolation are confirmed.
 - Migration approval/deployment ownership is recorded.
 - Backup, encryption, restore ownership and latest restore-test evidence are recorded, or their absence is accepted as an explicit blocker.
+- The staging database collation-version mismatch is assessed against the current server runtime.
+- Indexes and other stored objects affected by a changed collation are rebuilt where necessary.
+- The recorded database collation version is refreshed only after all affected objects have been rebuilt and verified.
+- A usable backup is confirmed before collation maintenance, or the accountable owner explicitly accepts the recovery risk.
 - Recovery/permanent-deletion/backup-expiry decisions have accountable owners; exact periods may remain configurable if explicitly approved.
 - The non-mutating health-check plan is approved.
 - WorkOS issuer/audience values and verification approach are confirmed.

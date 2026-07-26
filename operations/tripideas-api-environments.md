@@ -173,9 +173,18 @@ Separate account-level work that must be tracked:
 ## Staging database collation maintenance position
 
 - Local Notebook schema and API development may proceed against a disposable local PostgreSQL database.
-- No Notebook migration may be applied to staging until the collation maintenance gate below is complete.
+- The staging collation maintenance gate was completed on 26 July 2026. A
+  Notebook migration may be applied to staging only through the separately
+  approved migration procedure; this record does not authorize production
+  deployment.
 - The staging database is confirmed separate from production. Its private database reference is the approved maintenance target.
-- Do not use `DATABASE_PUBLIC_URL` for staging maintenance: its current reference appears to resolve to the production database. Correct or explicitly quarantine the shared or incorrect public reference before any maintenance or migration action.
+- The staging API uses the staging environment's private Postgres service
+  through `DATABASE_URL` and has no `DATABASE_PUBLIC_URL`. The Postgres service
+  exposes a Railway-generated public proxy variable, but it is quarantined from
+  application, migration and maintenance use. The 26 July maintenance used the
+  already-existing staging TCP proxy selected explicitly by Railway project,
+  environment and service, with separately injected Postgres credentials; it
+  did not use `DATABASE_PUBLIC_URL`.
 - Create a fresh staging backup immediately before collation maintenance. An isolated restore test is preferred; otherwise the accountable owner must explicitly accept the recovery risk.
 - The preferred maintenance path is to preflight affected unique values, run `REINDEX DATABASE CONCURRENTLY railway`, verify indexes, constraints and representative application reads and writes, and only then run `ALTER DATABASE railway REFRESH COLLATION VERSION`.
 - If the rebuild or verification fails, do not refresh the recorded collation version.
@@ -191,6 +200,37 @@ The staging Notebook migration gate requires:
 7. Refresh the database collation version.
 8. Confirm the recorded and actual versions match with no warning.
 9. Confirm migration approval and deployment ownership.
+
+### Completed staging maintenance — 26 July 2026
+
+| Field | Recorded result |
+| --- | --- |
+| Environment boundary | Railway `staging`; production is a distinct environment and was not accessed |
+| Database target | Staging Postgres database `railway`, PostgreSQL 16.14 |
+| Application database reference | Staging API private `DATABASE_URL`; no staging API `DATABASE_PUBLIC_URL` |
+| Owner | Douglas Paul, deployment, migration and database-maintenance owner |
+| Backup | Fresh manual staging database backup created 26 July 2026 at 02:12 UTC |
+| Restore position | Railway restore action confirmed; no isolated restore test performed; owner explicitly accepted the limited staging recovery risk |
+| Preflight size | 8,600,599 bytes (`8399 kB`, approximately 8.4 MB) |
+| Preflight activity | No transaction older than five minutes; no waiting locks; one active connection (the maintenance session); no idle-in-transaction connection |
+| Preflight collation | Recorded `2.36`; operating-system/actual `2.41`; mismatch warning present |
+| Affected indexes | 23 collatable-column indexes; all valid and ready before maintenance |
+| Constraint preflight | Zero unvalidated constraints |
+| Duplicate preflight | Zero duplicate groups for `User_email_key` and all eligible single-column unique text indexes checked |
+| Rebuild command | `REINDEX DATABASE CONCURRENTLY railway;` completed successfully in approximately 1.225 seconds |
+| Post-rebuild index result | Zero invalid or not-ready indexes; zero invalid unique indexes |
+| Post-rebuild constraint result | Zero unvalidated constraints |
+| Representative database checks | Reads succeeded for User, Favourite and Itinerary; rollback-only writes affected one User and one Favourite row; no Itinerary row existed; no changes were committed |
+| API readiness | `GET /health/ready` returned `200` with `{"status":"ready"}` after maintenance |
+| Available API regression checks | `/auth/identity` returned `200`; protected `/favourite/by-ids` returned `401` without a bearer token, confirming the route and authentication gate were active; no test bearer credential was used, so authenticated favourites mutation was not exercised |
+| Refresh command | `ALTER DATABASE railway REFRESH COLLATION VERSION;` completed successfully after rebuild verification |
+| Final collation | Recorded `2.41`; actual `2.41`; a fresh connection emitted no collation warning |
+| Final validity | Zero invalid/not-ready indexes and zero unvalidated constraints |
+| Migration procedure | Owner-approved staging procedure is checked-in Prisma migrations applied with `prisma migrate deploy`; never `prisma db push` |
+| Notebook staging gate | Collation, backup/risk, ownership and staging migration-control gate satisfied; migration 12 remains unapplied and requires a separate staging deployment task |
+
+No Railway branch, service, credential or production setting was changed during
+this maintenance. No application deployment or Prisma migration was performed.
 
 ## Exit criteria before the Notebook migration
 

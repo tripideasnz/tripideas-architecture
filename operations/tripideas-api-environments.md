@@ -316,9 +316,35 @@ Use the bucket's actual service name in each reference through Railway's
 autocomplete rather than typing or guessing it. Seal credential references
 where Railway supports that without breaking environment duplication policy.
 
+### Completed staging PhotoAsset rollout — 28 July 2026
+
+| Field | Recorded result |
+| --- | --- |
+| Environment boundary | Railway `staging`; production remained a separate environment and was not accessed or changed |
+| Database path | Staging API private `DATABASE_URL` resolving to `postgres.railway.internal`; the stale generic public Postgres connection was rejected and was not used for migration |
+| Database identity | Database `railway`, PostgreSQL 16.14, 8,920,087 bytes before migration and 9,042,967 bytes after migration |
+| Backup | Fresh manual staging Postgres volume backup created 27 July 2026 at 22:51:12 UTC |
+| Restore position | Railway restore action remained available; prefer a forward repair, otherwise stop staging and restore the fresh pre-migration backup before reconnecting the prior API |
+| Temporary access | The approved local public key was registered as `codex-staging-photo-maintenance-20260728` only for the maintenance window, then removed; Railway subsequently reported no registered SSH keys |
+| Preflight | Zero transactions older than five minutes, zero waiting locks, zero invalid/not-ready indexes and zero unvalidated constraints |
+| Approved migration | `20260728120000_add_photo_assets` |
+| Migration command/result | Existing Railway pre-deploy command `bunx prisma migrate deploy` applied the PhotoAsset migration successfully against the private Postgres service; Prisma recorded it once, finished, with no rollback |
+| Deployed API | Clean approved commit `aa2c73695468c229538347834b8b8369e4f542be`; Railway deployment `c2f78c4e-13b4-455a-9756-4da74754077c` completed successfully |
+| PhotoAsset data | New table exists with zero rows, as expected before the Photo Upload API milestone |
+| Schema validity | All three approved enums have the reviewed values; all 16 PhotoAsset constraints are validated; all six indexes, including the primary key, are valid and ready; no database-wide invalid/not-ready index or unvalidated constraint remains |
+| Final collation | Recorded `2.41`; actual `2.41` |
+| Storage provisioning | One private staging Railway Bucket, `tripideas-photo-assets`, created in region `sin`; no production bucket was created |
+| Runtime configuration | Staging API receives bucket endpoint, region, name and bucket credentials through Railway references; upload and download authorisation lifetimes are both 300 seconds |
+| Storage smoke test | A 39-byte synthetic `image/jpeg` object completed presigned PUT, adapter HEAD/metadata verification, presigned GET and local checksum comparison |
+| Storage cleanup | Adapter DELETE succeeded and a subsequent adapter HEAD returned the provider-neutral `object_not_found` result; the synthetic object does not remain |
+| API regression | `GET /health/ready` returned `200`; `/auth/identity` returned `200`; unauthenticated Notebook, favourites and Trip Ideas routes returned the expected generic `401`, confirming route and bearer boundaries remain active |
+| Automated regression | Focused Photo storage configuration, DTO, storage-service, key, S3-adapter, Notebook service/DTO/routes, mobile-bearer, mobile-exchange and readiness suites passed: 73 tests, 0 failed. The disposable-Postgres repository suite was not pointed at staging |
+| Branch/settings | API source branch setting remained `staging`; no Railway branch, role, user, network or SSH setting changed except the temporary key registration/removal |
+| Gate status | Staging PhotoAsset persistence, private storage and the matching provider-neutral API adapter are verified. Photo Upload API implementation may proceed separately; Photo Blocks remain out of scope |
+
 ### Staging-only provisioning and smoke-test plan
 
-This plan is not authorisation to execute:
+This is the reviewed procedure used for the completed staging rollout above:
 
 1. Reconfirm the selected Railway environment is `staging`, the API is the
    staging API service, and production is a separate environment. Stop if any

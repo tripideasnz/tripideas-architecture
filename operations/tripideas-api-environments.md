@@ -232,6 +232,37 @@ The staging Notebook migration gate requires:
 No Railway branch, service, credential or production setting was changed during
 this maintenance. No application deployment or Prisma migration was performed.
 
+### Completed staging Page migration — 27 July 2026
+
+| Field | Recorded result |
+| --- | --- |
+| Environment boundary | Railway `staging`; production remained separate and was not accessed or changed |
+| Database path | Staging API private `DATABASE_URL`; no staging API `DATABASE_PUBLIC_URL`; no public database URL was used |
+| Approved migration | `20260727120000_add_user_content_pages` |
+| Approved/deployed API | `0dd09f95bd3d24011022e908289298b013a8341f` |
+| Backup | Fresh manual staging Postgres backup confirmed by the owner at 23:04 NZST on 27 July 2026 (11:04 UTC) |
+| Restore position | Railway restore remained available; restore the fresh pre-migration backup before reconnecting the old API if a forward repair could not recover a failed new deployment |
+| Maintenance boundary | The old staging API deployment was stopped before migration; its service domain returned `404` while quiesced, so it could not accept writes |
+| Preflight | Database `railway`, `8623 kB`; zero transactions older than one minute; zero waiting locks; zero invalid/not-ready indexes; zero unvalidated constraints |
+| Preflight data | 19 legacy items: 14 active and 5 soft-deleted |
+| Preflight collation | Recorded `2.41`; actual `2.41` |
+| Migration command | Checked-in Railway pre-deploy command `bunx prisma migrate deploy`, executed inside Railway against `postgres.railway.internal`; `prisma db push` was not used |
+| Migration time/result | Finished 27 July 2026 at 11:19:56 UTC; Prisma recorded the migration as finished with no rollback and reported all migrations successfully applied |
+| Page/item mapping | 19 Pages for 19 legacy items; 14 active and 5 soft-deleted on each side; zero missing Pages, wrong deterministic `ucp_` IDs, wrong Page links or wrong document links |
+| Ordering | Page positions preserve former document-level item positions; all migrated block positions are `0`; zero duplicate active Page positions and zero duplicate active block positions within a Page |
+| Data preservation | Titles, Text content, item IDs, timestamps and deletion state preserved; the pre/post preservation digest matched (`4430fed87ba39ef2328e361b6e6f6f48`) |
+| Schema validity | `UserContentPage` and both active-position unique indexes exist; zero invalid/not-ready indexes and zero unvalidated constraints |
+| Post-migration size | `8711 kB` |
+| Final collation | Recorded `2.41`; actual `2.41`; deployment logs contained no collation warning |
+| Deployment | Railway deployment of the clean approved source completed successfully; root and `GET /health/ready` returned `200` |
+| Authentication boundary | Unauthenticated Notebook, favourites and itinerary requests returned generic `401`; the existing signed-in mobile session refreshed through `POST /auth/mobile/refresh` with `200` and then read a migrated Notebook detail with `200` |
+| Legacy DTO/mobile compatibility | Existing mobile Notebook list and detail rendered migrated Pages and Text content without cache parse errors; the legacy flat `items` DTO is retained by the deployed contract and its route/DTO tests passed |
+| Favourites and Trip Ideas | The signed-in Saved screen rendered an existing Trip Idea and existing favourites after deployment; no authenticated add/remove mutation was performed |
+| Automated contract regression | Focused Notebook service, DTO, route and mobile-bearer suites: 45 passed, 0 failed; covered create/list/read, metadata update, Text create/update/delete, reorder, stale-version conflict, ownership-safe 404, deletion and legacy contract serialization |
+| Interactive mutation limitation | Simulator deep-link navigation and signed-in reads were verified. Automated screen interaction was unavailable because the macOS runner lacked assistive access, so live staging create/edit/delete/reorder/conflict and favourites add/remove were not claimed as executed |
+| Rollback position | Migration succeeded and the matching API is healthy. Do not run the old API against the migrated schema. Prefer a forward fix; if that is not viable, stop staging, restore the 23:04 NZST backup, then reconnect the old API |
+| Gate status | Page migration and matching API deployment completed successfully. Final product acceptance remains conditional on the short interactive signed-in mutation regression noted above |
+
 ## Exit criteria before the Notebook migration
 
 - Actual production and staging API/web service, branch and commit mappings are recorded.

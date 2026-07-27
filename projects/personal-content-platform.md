@@ -109,6 +109,45 @@ A photo, note or place reference should not belong exclusively to a single noteb
 
 Instead, content should be linkable into multiple contexts while maintaining a single underlying source.
 
+## Implementation refinement — Content Block Architecture
+
+Notebook Phase 1 confirmed that Pages remain the primary organisational unit presented to users. Pages represent natural chapters or sections within a Notebook, preserving a document-oriented experience rather than asking travellers to work through a collection of forms.
+
+Internally, each Page should contain one or more typed Content Blocks. The initial implementation provides only the Text block. Future block types are expected to include:
+
+- Photo
+- Place
+- Route
+- Map
+- Checklist
+- Web Link
+- AI-generated content
+
+This is an implementation refinement rather than a change of direction. Content Blocks are an internal abstraction that allows richer content to be introduced without redesigning the Page or Notebook model.
+
+> Users think in Pages. The platform thinks in typed Content Blocks.
+
+This architecture provides:
+
+- independent evolution of new content types
+- modular rendering
+- reusable user-owned assets, especially photographs
+- support for future publishing formats
+- support for future AI processing at block level
+- cleaner separation between content structure and presentation
+
+The same underlying block-based content can support future outputs including:
+
+- private Notebooks
+- Trip Ideas
+- travel journals
+- TripIdeas editorial submissions
+- PDFs
+- books
+- other future publication formats
+
+This refinement does not change the existing ownership or privacy model. All user content remains user-owned. Typed Content Blocks exist to improve flexibility and future reuse; no additional sharing or publication occurs without explicit user action.
+
 ## Scope
 
 The Personal Content Platform focuses on traveller-created content.

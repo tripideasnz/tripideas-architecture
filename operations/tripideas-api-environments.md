@@ -263,6 +263,100 @@ this maintenance. No application deployment or Prisma migration was performed.
 | Rollback position | Migration succeeded and the matching API is healthy. Do not run the old API against the migrated schema. Prefer a forward fix; if that is not viable, stop staging, restore the 23:04 NZST backup, then reconnect the old API |
 | Gate status | Page migration and matching API deployment completed successfully. Final product acceptance remains conditional on the short interactive signed-in mutation regression noted above |
 
+## Private photo storage operations
+
+### Architecture and environment boundary
+
+- The API depends on the provider-neutral `PrivateObjectStorage` contract.
+  Railway Buckets are the approved initial S3-compatible provider; provider
+  selection, bucket identity and credentials remain runtime configuration.
+- Buckets must remain private. Clients receive only short-lived, single-object
+  presigned PUT or GET authorisations after the API applies its own
+  authentication, ownership and policy checks.
+- Staging and production require separate bucket instances and separate
+  credentials. A staging variable reference must never target a production
+  bucket, and no production bucket is authorised by this milestone.
+- The deployment/database owner is also the initial storage-credential owner.
+  Bucket-specific credentials must reach only the staging API through Railway
+  reference variables. Do not copy credential values into Git, documentation,
+  logs, local shell history or application responses.
+- Default signed URL lifetimes are 300 seconds. Configuration permits upload
+  lifetimes from 60–900 seconds and download lifetimes from 30–900 seconds.
+- Source, processed and thumbnail objects use opaque asset-based keys beneath
+  hashed internal owner namespaces. Keys contain no email, WorkOS identity,
+  filename, Notebook title or location.
+- A signed PUT binds the expected content type. Because presigning does not
+  make byte size authoritative, upload completion must HEAD the object and
+  enforce the expected content type and API-approved maximum size before the
+  PhotoAsset lifecycle advances.
+- The available Railway Bucket documentation does not provide an application
+  backup, object-versioning or point-in-time recovery guarantee for ordinary
+  user buckets. Do not treat volume or PostgreSQL backups as bucket backups.
+  Before production, approve an independent asset recovery position.
+- Database rows and object storage can diverge after interrupted operations.
+  Later milestones require idempotent reconciliation for expired uploads,
+  orphan objects, missing derivatives and purge-eligible soft deletions.
+
+### Configuration contract
+
+Configure these variables on the API service. Values come from the bucket
+service through Railway reference variables; only the two TTLs are literals.
+
+| API variable | Staging value source |
+| --- | --- |
+| `PHOTO_STORAGE_ENDPOINT` | `${{<staging-bucket-service>.ENDPOINT}}` |
+| `PHOTO_STORAGE_REGION` | `${{<staging-bucket-service>.REGION}}` |
+| `PHOTO_STORAGE_BUCKET` | `${{<staging-bucket-service>.BUCKET}}` |
+| `PHOTO_STORAGE_ACCESS_KEY_ID` | `${{<staging-bucket-service>.ACCESS_KEY_ID}}` |
+| `PHOTO_STORAGE_SECRET_ACCESS_KEY` | `${{<staging-bucket-service>.SECRET_ACCESS_KEY}}` |
+| `PHOTO_STORAGE_UPLOAD_URL_TTL_SECONDS` | `300` |
+| `PHOTO_STORAGE_DOWNLOAD_URL_TTL_SECONDS` | `300` |
+
+Use the bucket's actual service name in each reference through Railway's
+autocomplete rather than typing or guessing it. Seal credential references
+where Railway supports that without breaking environment duplication policy.
+
+### Staging-only provisioning and smoke-test plan
+
+This plan is not authorisation to execute:
+
+1. Reconfirm the selected Railway environment is `staging`, the API is the
+   staging API service, and production is a separate environment. Stop if any
+   target is ambiguous.
+2. Select the same available region as the staging API where practical and
+   record the choice. Create exactly one staging Bucket named descriptively for
+   private photo assets. Confirm Railway reports it as private and records the
+   expected staging environment before applying staged infrastructure changes.
+3. Use only the bucket-specific S3 credentials Railway creates. Do not use a
+   Railway project token or credentials from another bucket/environment.
+   Railway currently supplies bucket-level credentials rather than a custom
+   IAM policy surface; application-level opaque prefixes provide the narrower
+   key boundary.
+4. Add the seven API variables above using references to that staging bucket.
+   Review Railway's staged diff and confirm there is no production variable or
+   service change before applying it.
+5. Deploy only a separately approved API commit containing the storage adapter.
+   Do not apply the PhotoAsset database migration merely to run the storage
+   smoke test; the adapter does not require a database row or public route.
+6. Generate a valid synthetic `user_` ID and `pha_` ID locally, derive one
+   source smoke-test key through `photoStorageKeys`, and create a 300-second
+   signed PUT for a tiny non-sensitive fixture with an exact `image/jpeg`
+   header. Do not print credentials or persist the signed URL in logs.
+7. PUT the fixture directly to the signed URL with the required content type.
+   HEAD it through the adapter and verify exact content type, byte length and
+   existence. Create a 300-second signed GET, download the fixture and compare
+   its checksum locally.
+8. Delete the smoke-test object through the adapter, then HEAD the same key and
+   require the provider-neutral missing-object result. Confirm the prefix has
+   no remaining smoke-test object.
+9. Confirm API readiness and existing Notebook/authentication tests are still
+   healthy. Record only environment, timestamp, API SHA, safe object prefix,
+   byte count and pass/fail results.
+10. If any step fails, revoke or reset the staging bucket credentials if they
+    may have been exposed, delete any known smoke object, leave production
+    untouched and report the safe failure category. Do not delete the bucket
+    until the failure is understood and the staged configuration is reviewed.
+
 ## Exit criteria before the Notebook migration
 
 - Actual production and staging API/web service, branch and commit mappings are recorded.

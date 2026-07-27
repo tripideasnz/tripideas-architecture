@@ -156,6 +156,42 @@ The same underlying block-based content can support future outputs including:
 
 This refinement does not change the existing ownership or privacy model. All user content remains user-owned. Typed Content Blocks exist to improve flexibility and future reuse; no additional sharing or publication occurs without explicit user action.
 
+## Implementation refinement — Private Photo Assets
+
+Photographs are reusable, user-owned assets and remain separate from Notebook
+Pages and Content Blocks. A future Photo block will reference a PhotoAsset
+rather than owning an uploaded file, allowing the same photograph to be reused
+across Notebooks and future publication formats without duplicating its binary
+or metadata.
+
+PhotoAsset persistence records ownership, idempotent creation, upload and
+processing lifecycle, derivative dimensions and file sizes, private location
+metadata, and delayed-deletion eligibility. Binary source, processed and
+thumbnail files live in private object storage rather than PostgreSQL. The
+database stores only opaque internal storage keys; keys, provider configuration
+and credentials are not exposed through normal owner-facing content contracts.
+
+Storage access is isolated behind a provider-neutral adapter. Railway Buckets
+are the approved initial provider direction, pending a separate provisioning
+and storage-adapter milestone, but the asset model contains no Railway-specific
+bucket, URL or credential fields.
+
+Location remains asset-level private metadata. Removing location physically
+clears precise coordinates and all location-derived fields. Sharing or
+publishing a photograph will not share precise location unless a future,
+explicitly approved product action says otherwise. Processed image files will
+strip GPS EXIF before any later sharing or publication workflow.
+
+PhotoAsset deletion is staged: an active asset may be soft-deleted with a
+future purge time, after which storage cleanup can make it purge eligible.
+Processed and thumbnail bytes form the durable quota-accounting basis.
+Asset versions begin at one and advance for owner-visible metadata mutations,
+including location changes and deletion requests. Physical user deletion is
+restricted while owned assets remain. PhotoBlock persistence and asset
+references belong to the next milestone and are intentionally not introduced
+by the asset-foundation migration; those references must later prevent physical
+asset deletion while an active block still uses the asset.
+
 ## Scope
 
 The Personal Content Platform focuses on traveller-created content.

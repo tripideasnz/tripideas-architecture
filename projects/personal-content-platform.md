@@ -123,6 +123,14 @@ Internally, each Page should contain one or more typed Content Blocks. The initi
 - Web Link
 - AI-generated content
 
+Pages are explicitly persisted beneath their owning Notebook and have their own
+order, title and lifecycle. Each Page contains a separately ordered collection
+of typed Content Blocks. During the compatibility rollout,
+`UserContentItem` remains the physical block table, while existing flat Text
+endpoints and responses continue to adapt the persisted Page/block structure
+for the completed mobile Text MVP. Photo is the next planned block type, but is
+not part of this persistence migration.
+
 This is an implementation refinement rather than a change of direction. Content Blocks are an internal abstraction that allows richer content to be introduced without redesigning the Page or Notebook model.
 
 > Users think in Pages. The platform thinks in typed Content Blocks.

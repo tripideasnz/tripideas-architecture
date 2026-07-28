@@ -342,6 +342,26 @@ where Railway supports that without breaking environment duplication policy.
 | Branch/settings | API source branch setting remained `staging`; no Railway branch, role, user, network or SSH setting changed except the temporary key registration/removal |
 | Gate status | Staging PhotoAsset persistence, private storage and the matching provider-neutral API adapter are verified. Photo Upload API implementation may proceed separately; Photo Blocks remain out of scope |
 
+### Completed staging Photo Upload API verification — 28 July 2026
+
+| Field | Recorded result |
+| --- | --- |
+| Deployed API | `9e2dfdd88584578fed75fa9067fbe0b68272fe7b`; Railway deployment `8de8f149-4ccf-4f94-9e73-56f928f469a2` completed successfully |
+| Migration | Existing `bunx prisma migrate deploy` pre-deploy command found 15 migrations and no pending migration; no schema change or `prisma db push` occurred |
+| Contract | Authenticated `POST /photo-assets/upload-intents` creates or reuses an owner-scoped pending asset and returns a short-lived signed PUT authorisation; authenticated `POST /photo-assets/:assetId/upload-completion` verifies storage metadata and advances the asset |
+| Lifecycle | Successful upload advanced `PENDING / WAITING`, version 1, to `UPLOADED / WAITING`, version 2 |
+| Validation | JPEG and PNG completed successfully; the required content-type header, signed-authorisation expiry, exact MIME type and exact byte length were enforced |
+| Intent idempotency | Repeating the same owner/client request returned the same uploaded asset with HTTP 200 semantics and `upload: null`; no new PUT authorisation was issued |
+| Completion idempotency | Repeating completion with the identical checksum returned the same version-2 uploaded asset; a different valid checksum returned `409 photo_upload_conflict` |
+| Negative cases | Completing without an object returned `409 photo_upload_incomplete`; uploading a shorter object than declared returned `422 photo_upload_mismatch` and did not advance the asset |
+| Ownership isolation | A second authenticated staging identity received the same `404 not_found` result for the first identity's real pending asset and a nonexistent asset |
+| Response privacy | Owner responses contained no owner ID, client request ID, checksum or source/processed/thumbnail storage key; credentials and bucket configuration were not exposed |
+| Transport note | React Native's debugger-driven Blob PUT failed before reaching storage. The disposable fixture bytes were therefore PUT by the maintenance host using the in-memory signed authorisation; the mobile product upload transport remains a later mobile-import milestone |
+| Readiness | Root and readiness remained HTTP 200 after deployment and lifecycle verification |
+| Test cleanup | Temporary local credentials, signed-authorisation state, fixtures, opaque references and debugger scripts were deleted. The current API has no asset deletion endpoint or cleanup worker, so successful and mismatch staging test objects/rows remain as disposable staging data |
+| Deferred scope | Photo Blocks, processing, thumbnails, workers, EXIF, maps, rendering and production rollout remain unimplemented and unapproved |
+| Gate status | Staging Photo Upload API lifecycle verified; processing-worker planning may proceed separately after review |
+
 ### Staging-only provisioning and smoke-test plan
 
 This is the reviewed procedure used for the completed staging rollout above:

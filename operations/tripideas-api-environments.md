@@ -362,6 +362,31 @@ where Railway supports that without breaking environment duplication policy.
 | Deferred scope | Photo Blocks, processing, thumbnails, workers, EXIF, maps, rendering and production rollout remain unimplemented and unapproved |
 | Gate status | Staging Photo Upload API lifecycle verified; processing-worker planning may proceed separately after review |
 
+### Completed staging owner Photo Block verification — 28 July 2026
+
+| Field | Recorded result |
+| --- | --- |
+| Environment boundary | Railway `staging` only; production services, databases, buckets, variables and domains were not accessed or changed |
+| Deployed API | Clean reviewed commit `69070806d033a646212d60f170b088357287e8d2`; Railway deployment `2dcf4732-a105-43f6-a6e4-10c17b26f1d3` completed successfully |
+| Initial deployment attempt | Deployment `3e77296b-3894-4d69-9a5b-81b5cdcd4a55` stopped in pre-deploy with Prisma `P1001` because staging Postgres was asleep; no migration ran. A non-mutating readiness request woke the private database before the successful retry |
+| Database path | Prisma reported database `railway` at the staging-private `postgres.railway.internal:5432`; no public database URL and no `prisma db push` were used |
+| Migrations | The established `bunx prisma migrate deploy` pre-deploy command applied `20260728180000_add_notebook_photo_blocks` followed by `20260728181000_add_notebook_photo_block_fields`; Prisma reported all 17 migrations successfully applied |
+| Migration safety | The enum prerequisite and dependent columns/constraints remained split across two ordered migrations, so the enum value committed before its use |
+| Readiness | Root returned HTTP `200` with `OK`; `GET /health/ready` returned HTTP `200` with `ready` after deployment |
+| Mobile client | Staging development client verified at `f118ac1280b0f4648d26da51bc07604bce05f2d7`; `expo-image-picker` and `expo-file-system` were present in the rebuilt Simulator binary |
+| Owner lifecycle | Synthetic JPEG and PNG fixtures uploaded to owner-scoped `UPLOADED / WAITING` Photo Assets, created persisted Photo Blocks only after completion, and rendered through authorised signed GET access |
+| Ordering | A Text Block followed by two Photo Blocks retained deterministic positions `0, 1, 2` after an authoritative content read |
+| Idempotency and retry | A deliberately interrupted PUT remained retryable; retry reused the same Photo Asset, incremented retry count once and reached `UPLOADED` without duplicating the asset |
+| Restart recovery | Durable owner-partitioned upload and pending-block records, stable block request IDs, recovery after upload-before-block-save, and authorised image refresh are covered by the reviewed mobile recovery suites. The exact staging binary also restored persisted remote Photo Blocks after rebuild/relaunch |
+| Signed GET security | Signed GET authorisation required the authenticated owner, returned a short-lived in-memory URL, and successfully read the private object. Signed URLs were not written to documentation, logs, AsyncStorage or the persisted block DTO |
+| Owner isolation | A genuine second staging identity received the same safe `404` status/code for the first owner's Notebook and a nonexistent Notebook, for foreign versus nonexistent Photo Asset attachment, and for foreign versus nonexistent signed-GET authorisation |
+| Local isolation | The second identity had no first-owner pending blocks or upload records; queues remained partitioned by authenticated owner |
+| Removal and retention | Removing a Photo Block removed the Page relationship while a new owner-authorised signed GET still read the underlying asset/object. Deleting both disposable verification Notebooks did not delete their Photo Assets |
+| Cleanup | Both disposable verification Notebooks were deleted through supported APIs. Three synthetic Photo Assets/private objects remain because this milestone intentionally has no asset-deletion endpoint or cleanup worker |
+| Regression | Focused API suites passed 51 tests; disposable-Postgres Notebook repository integration passed 22 tests and PhotoAsset integration passed 2. Mobile auth, Content Block, Notebook, upload, recovery and storage suites passed; Expo lint had zero errors and four pre-existing warnings; iOS development export/build and API bundle passed |
+| Deferred scope | Sharing, capability links, public/shared rendering, thumbnails, processing, EXIF, galleries, captions, cleanup workers and asset deletion remain deferred and were not introduced |
+| Gate status | Private owner-only Notebook Photo Blocks are verified on staging. Shared Notebook rendering and access remain deferred to Milestone 6 |
+
 ### Staging-only provisioning and smoke-test plan
 
 This is the reviewed procedure used for the completed staging rollout above:

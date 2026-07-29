@@ -235,6 +235,11 @@ Users should still feel they are editing a document rather than filling in forms
 
 Collections and structured place cards become reusable building blocks for future Trip Ideas.
 
+The approved architecture for the first structured object is recorded in
+[Stage 2 — Personal Place Cards](personal-content-platform/stage-2-personal-place-cards.md).
+It defines a canonical user-owned Place Card, reusable PhotoAsset relationships,
+readiness rules, and discriminated integration with Trip Idea entries.
+
 ### Phase 3 — TripIdeas Contribution
 
 Allow users to offer selected content to TripIdeas.

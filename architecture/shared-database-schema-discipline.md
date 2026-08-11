@@ -66,3 +66,16 @@ from a filename, branch name, or local environment variable alone.
   incompatible; block or clearly label online actions that cannot be trusted.
 - Do not repurpose another consumer's API service to gain deployment speed.
 
+## Source control discipline
+
+For completed, validated feature work:
+
+1. commit locally;
+2. push the authorised working branch promptly;
+3. treat deployment as a separate permission boundary; and
+4. do not allow large bodies of validated work to remain local-only without an
+   explicit reason.
+
+A `do not deploy` instruction does not imply `do not push`. Use a `do not push`
+restriction only when a specific review or safety reason requires it. This
+rule does not weaken protected-branch, review, environment, or staging controls.

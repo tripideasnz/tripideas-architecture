@@ -1,6 +1,6 @@
 # Mobile integration API — developer handoff
 
-Status: integration setup in progress, 11 August 2026
+Status: deployed and smoke-verified, 11 August 2026
 
 ## Why it exists
 
@@ -58,15 +58,24 @@ The integration service shares the staging migration ledger; it does not own a
 second schema. Verify the migration set before deployment, use only checked-in
 `prisma migrate deploy`, and use expand/migrate/contract for breaking changes.
 
-## Current operational gate
+## Deployment record
 
-The blank service and domain exist. Deployment remains paused until explicit
-approval grants this persistent service access to the full shared staging
-dependency scope (database, WorkOS, private storage, mail, Sanity, sharing, and
-Bookit configuration). Use Railway variable references rather than copying
-secret values.
+- Deployment: `973ac22e-6d81-4c59-b6c1-a9133aa7cdb4`
+- API source: `f6af0b1fb1c0c190ad2805245727867d9063de17`
+- Dependency configuration: Railway references to the existing staging API
+  variables; no secret values copied into source or documentation
+- Schema: no pre-deploy command and no schema or data migration performed
+- Domain: active on target port `8080`
+- Live smoke: readiness and identity returned `200`; representative Notebook,
+  Personal Place, itinerary, and photo-authorization routes returned expected
+  unauthenticated `401` responses rather than route `404`
+- Identity: API version `1`, environment `integration`, exact build SHA, and all
+  required mobile capabilities confirmed
+
+No approved signed-in test credential was available, so authenticated CRUD was
+not claimed. The route/service smoke and focused local contract tests completed
+successfully.
 
 If a deployment fails, leave the existing `api`, `web`, database, and production
 services untouched. Fix forward or remove only the new blank integration
 service after confirming it has no unique data or dependencies.
-

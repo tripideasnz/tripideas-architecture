@@ -10,3 +10,6 @@ It captures durable direction and cross-project context. Detailed implementation
 - `projects/` contains major cross-cutting project documents.
 - `architecture/` is reserved for architecture documentation and RFCs.
 - `decisions/` is reserved for architectural decision records.
+
+Mandatory cross-service policy: [Shared database schema and API compatibility
+discipline](architecture/shared-database-schema-discipline.md).

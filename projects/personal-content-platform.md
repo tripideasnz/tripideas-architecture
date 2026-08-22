@@ -252,6 +252,18 @@ Potential contributions include:
 
 TripIdeas may review, accept, decline or license contributions through an explicit workflow.
 
+### Diary — deliberate journey composition
+
+Diary is a separate structured artifact built from selected user-owned and
+TripIdeas source material. It organises ordered Days, freely named Topics and
+presentation items while leaving Notebook capture, Trip planning and Personal
+Place authority unchanged. Manual composition is complete without AI; future AI
+acts through reviewable proposals.
+
+The approved domain, provenance, ordering, map, sharing and rights boundaries
+are recorded in [Diary foundation](personal-content-platform/diary-foundation.md).
+Local product work may proceed while database persistence remains deferred.
+
 ### Phase 4 — Publishing
 
 Support multiple publication formats generated from the same underlying content.

@@ -121,13 +121,16 @@ never takes ownership of that document.
   verification and the staleness signal for all dependent evidence.
 - **Two verification states only:** *unverified*, or *human verified at
   fingerprint F*. There is no permanent "rejected coordinate" state.
-- **Provenance** records how the current coordinate arrived: Studio entry,
-  Pin Review move, or import.
+- **Provenance** records how the current coordinate arrived:
+  `sanity_editorial` (any coordinate ingested from Sanity, including Studio
+  entry and Bookit-synchronised accommodation), `pin_review`,
+  `metadata_import`, or `manual_admin_entry`.
 - **Single coordinate writer.** For a published entity, the Sanity coordinate
   field is the only mutable coordinate. The platform records, fingerprints and
   verifies it, and never edits a coordinate independently of it.
   - *Studio entry or edit:* the editor writes Sanity; ingestion detects the new
-    fingerprint and records it as unverified with provenance `studio`.
+    fingerprint and records it as unverified with provenance
+    `sanity_editorial`.
   - *Pin Review move:* the tool performs one controlled coordinate write to
     Sanity (the existing controlled-write approach). Only after that write
     succeeds does the platform record the new coordinate, its fingerprint,

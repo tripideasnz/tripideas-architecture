@@ -2,9 +2,23 @@
 
 ## Status
 
-Proposed — 2026-09-29. Governs all future geographic processing work. Supersedes
-the transitional Milestone A.1 / ORS Matrix tooling as the target design; it
-does not retroactively invalidate data that tooling produced.
+Accepted — 2026-10-04. This ADR is the architectural authority for geographic
+platform implementation. It governs all future geographic processing work and
+supersedes the transitional Milestone A.1 / ORS Matrix tooling as the target
+design. It does not retroactively invalidate data that tooling produced.
+
+History:
+
+- Proposed 2026-09-29.
+- Revised and accepted 2026-10-04 after the Place Processing Stage 1 design and
+  the road-access audits. The revision added:
+  - road-based Nearby proximity (no crow-flight fallback);
+  - road-access semantics and road-access points;
+  - explicit `supercluster_member`;
+  - the Stage 1 / Stage 2 boundary;
+  - the separation of provider observation, policy assessment and human
+    decision for road evidence;
+  - retirement of manual and estimated road distances.
 
 ## Context
 
@@ -56,6 +70,7 @@ and operates them through two user-initiated tools.
 | Concept | Question | Authority |
 |---|---|---|
 | Coordinate QA | Is this editorial location credible? | Geographic platform |
+| Road-access semantics | How should road routing treat this Place? | Geographic platform |
 | Structural relationship graph | How are these Places structurally connected? | Geographic platform |
 | Distance/access graph | What calculated distance/access evidence exists between these Places? | Geographic platform |
 | Nearby Places (derived) | What should we recommend near this Place? | Proposal and approval in the geographic platform; published projection in Sanity |
@@ -71,7 +86,16 @@ The two tools, exposed through the TripIdeas tool library:
   Optional, on-demand coordinate QA.
 - **Place Processing** — *Classify Places, build relationships and distances,
   and prepare Nearby Places.* On-demand processing after batches of new Places
-  or Accommodation, and for later stale or incomplete geographic work.
+  or Accommodation, and for later stale or incomplete geographic work. Stage 1
+  establishes geographic semantics; Stage 2 calculates road evidence and
+  prepares Nearby Places.
+
+**Governing principle — explicit geographic semantics.** Stable, human-known
+geographic facts are stored explicitly as structured metadata whenever they can
+be represented deterministically. Neither routing code nor a future AI should
+have to reconstruct them from article prose, ORS behaviour, snap distances,
+Nearby ranking or proximity to a representative pin. Article text is evidence
+and a source of suggestions, never the authority.
 
 ## Authority boundaries
 
@@ -91,6 +115,7 @@ The two tools, exposed through the TripIdeas tool library:
 - coordinate fingerprint and provenance;
 - coordinate verification;
 - structural classification used by geographic processing;
+- road-access semantics and road-access points;
 - the structural relationship graph;
 - the distance/access graph;
 - processing and review state;
@@ -98,6 +123,9 @@ The two tools, exposed through the TripIdeas tool library:
 
 A GeoEntity *references* an editorial Sanity document where one exists. It
 never takes ownership of that document.
+
+The platform becomes the processing authority for confirmed classification,
+topology and road-access semantics at an explicit cutover, not before.
 
 ## Geographic identity
 
@@ -143,22 +171,100 @@ never takes ownership of that document.
   new unverified coordinate. Two competing writers therefore cannot silently
   diverge.
 
+## Three separate geographic concepts
+
+Every Place and Accommodation is described by three independent facts. They
+are never collapsed into one another.
+
+| Concept | Meaning | Examples | Owner |
+|---|---|---|---|
+| **A. Canonical location** | Where the actual Place is | the beach, waterfall, track feature, lookout or accommodation itself | Pin Review (coordinate QA) |
+| **B. Road-access metadata** | How road routing treats the Place: `direct`, a separate road-access point, or `none` | a beach served by its own car park; a long accommodation driveway | Place Processing Stage 1 |
+| **C. Structural topology** | How actual Places relate to one another | track connections; hub, cluster and supercluster membership; road, river and network relationships; departures | Place Processing Stage 1 |
+
+- A canonical pin is never moved to satisfy road routing (B), and never to
+  express topology (C).
+- A road-access point (B) is routing metadata, not a Place and not topology.
+- Topology (C) never produces a road distance.
+
 ## Structural relationship model
 
 The structural graph stores **genuine structural relationships only**, using
 the existing TripIdeas vocabulary. No parallel vocabulary (for example
 `accessed_via`) is introduced.
 
-**Classification (per entity):** the existing `placeType` enum. For processing
-purposes an unset value means *awaiting classification*, not `place`.
+**Classification (per entity):** the existing `placeType` enum (`supercluster`,
+`cluster`, `hub`, `road_hub`, `river_hub`, `track_network`, `place`). No
+parallel taxonomy. For processing purposes an unset value means *awaiting
+classification*, not `place`. Existing values are imported; missing values are
+proposed and then reviewed or bulk-confirmed in Stage 1.
 
-**Relationship types:** the existing structural selection buckets —
-`cluster_member`, `hub_member`, `hub_connection`, `road_hub`,
-`connected_track`, `connected_place`, `access_hub`, `article_reference`
-(supercluster membership evidence), `route_network_member`,
-`departure_point`, `manual`. Each relationship records its type, the evidence
-signal, and its status (proposed / confirmed / rejected) with the deciding
-human.
+**Relationship types:** the existing structural vocabulary, plus one
+deliberate addition:
+
+- `supercluster_member` *(new)* — supercluster → member Place. Supercluster
+  membership is a genuine semantic relationship and is no longer represented
+  indirectly as `article_reference`, so "which Places belong to this
+  supercluster?" can be answered without knowing a Nearby implementation
+  convention.
+- `cluster_member`, `hub_member`, `hub_connection`, `road_hub`,
+  `connected_track`, `connected_place`, `access_hub`, `route_network_member`,
+  `departure_point`.
+- `article_reference` — retained only for genuine article-reference
+  semantics, not membership.
+
+**`hub_connection` and `access_hub` need semantic review before use.** They
+are not removed merely because current usage is sparse. Before Stage 1
+topology schema or migration work relies on either one, determine whether it
+represents:
+- a genuine, distinct structural relationship that should remain; or
+- historical terminology now cleanly covered by another type.
+
+If it is redundant, deprecate it deliberately. There is no incidental enum
+cleanup as part of Stage 1A. This review does not block the rest of this ADR.
+
+Each relationship records its type, the evidence signal, and its status
+(proposed / confirmed / rejected) with the deciding human. A rejected
+relationship is kept so the same false positive is not proposed again.
+
+**Not topology:**
+
+- `manual` Nearby choices are Nearby ranking decisions. They belong to Stage 2
+  as manual Nearby positions, not to the structural graph.
+- `distance` is never topology (see below).
+
+**Direction:**
+
+- Container/member relationships are directional: container → member.
+  - `supercluster_member`, `cluster_member`, `hub_member`, `road_hub` (road page
+    → Place on it), `route_network_member`, `departure_point`.
+- Connections are symmetric: a confirmed connection can be traversed from
+  either Place.
+  - `connected_track`, `connected_place`, `access_hub`.
+  - The domain does not require separate A→B and B→A facts. The storage
+    representation is an implementation choice. A per-source label (for
+    example `connected_track` when seen from a beach, `connected_place` when
+    seen from the track) is a derived projection.
+
+**Supercluster membership workflow.** A supercluster pin is only a
+representative point for an extended geographic concept, so membership is
+never inferred from distance to it (this failed previously). Stage 1 follows
+the general pattern *evidence → candidate set → map → human selection →
+durable relationship*:
+
+1. Gather evidence:
+   - Places explicitly linked from or named in the supercluster article;
+   - existing approved structural relationships (including the historical
+     supercluster Nearby entries);
+   - other strong editorial signals already available.
+2. Present the candidate list with each candidate's evidence.
+3. Show all candidates together on the map. Proximity may be shown as
+   secondary context only.
+4. Douglas selects the true members and explicitly excludes false positives.
+5. Selections become confirmed `supercluster_member` relationships;
+   exclusions are recorded as rejected.
+
+Candidate generation never becomes authority by itself.
 
 **Connected tracks (existing model, preserved):**
 
@@ -184,13 +290,145 @@ human.
 
 **Islands and departures:** island access, ferry crossings and
 `departure_point` relationships move from code configuration
-(`island-config.ts`) into confirmed relationships and access records.
+(`island-config.ts`) into confirmed relationships and access records. Being on
+an island does not by itself make a Place's road access `none` (see below).
 
-**Road connection (future, optional):** a track network may later carry a
-simple evidence fact such as *road connection exists* (normally true at a
-network's start/end tracks; false where access is boat-only). It is not used
-by road-distance calculation or Nearby ranking, and needs no further design
-now.
+**Mercer Bay — the required topology test.** The journey is conceptually:
+road/car park → Ahu Ahu Track or Mercer Bay Loop Track → Comans Track →
+informal Mercer Bay track → Mercer Bay. Mercer Bay is represented by:
+
+- its real canonical pin at the bay (A);
+- `roadAccess = none`, reason `track_network` (B);
+- confirmed connections through the named track network (C), for example
+  Comans Track ↔ Mercer Bay.
+
+It does **not** acquire a road-access point because its article mentions a car
+park earlier in the journey. That car park belongs to the track network's
+access context (the tracks that begin there), not to Mercer Bay. Reachability
+from a road is derived by traversing the topology, not stored, and never
+produces a road distance.
+
+## Road-access semantics
+
+Each Place and Accommodation carries a durable road-access fact, decided in
+Stage 1:
+
+| `roadAccess` | Meaning | Road-routing endpoint |
+|---|---|---|
+| `direct` | Road distance to the canonical location is meaningful. The normal case. | Canonical location |
+| `access_point` | The canonical location is correct, but legitimate vehicle access is represented by a separate road-access point that directly serves the Place | The road-access point |
+| `none` | There is no meaningful road-routing endpoint for this Place itself | None — never routed |
+| *(unset)* | Not yet assessed | — |
+
+- **`none` does not mean inaccessible.** The Place may be easily reached on
+  foot through connected tracks, by boat or ferry, through another Place, or
+  through other topology. It means only that road distance to the Place itself
+  is not meaningful. This distinction is stated explicitly because AI will
+  consume the metadata.
+- **There is no permanent `unknown` value.** Unset means not yet assessed.
+  Undecided or ambiguous cases are workflow state, not geography.
+
+**Reasons for `none`** (a small, stable, semantic vocabulary):
+
+| Reason | Meaning |
+|---|---|
+| `regional_extent` | The pin represents an area or corridor construct (supercluster, river corridor), not a vehicle destination |
+| `track_network` | Reached on foot through named tracks or Places; confirmed connections must exist |
+| `walk_in` | Reached only on foot, with no named intermediate track or Place |
+| `water` | Reached by boat, ferry or air; no vehicle access at the destination |
+| `other` | Requires a human note |
+
+Provider and routing observations are **not** reasons. A private-road routing
+failure, an ORS failure, a large snap distance, or a shared access point are
+observations or derived facts and are recorded elsewhere.
+
+**Deterministic rules from confirmed classification:**
+
+- `supercluster` ⇒ `none` / `regional_extent`. The pin represents the
+  geographic construct and is never a road-distance destination.
+- `river_hub` ⇒ `none` / `regional_extent`. The pin represents a river or
+  corridor, not a vehicle destination. Individual Places along the river may
+  be `direct`. The corridor nature is already expressed by the classification
+  together with the reason.
+- No other classification implies a road-access value. Hubs, clusters, road
+  hubs and track networks follow their actual semantics.
+- **Islands are not a rule.** An island may have its own usable road network
+  (Waiheke's Oneroa and Palm Beach are `direct`). A mainland ↔ island road
+  discontinuity is a Stage 2 road-evidence outcome, not a property of every
+  Place on the island. An island destination with no vehicle access (for
+  example Rangitoto or Tiritiri Matangi) is `none` / `water` by human decision.
+
+**The 100 m snap threshold is evidence, not geographic truth.**
+
+- At or below 100 m it is a useful automatic road-evidence acceptance
+  threshold (Stage 2), and above 100 m a useful review trigger.
+- It never makes a canonical coordinate wrong. It never requires an access
+  point, and never implies `none`. New Zealand geography produces many
+  legitimate cases beyond it (beaches, headlands, park features and track
+  starts).
+
+**Ambiguity goes to human review.** Road-access decisions are not forced by a
+distance rule. Example: Tawhitokino Beach's article describes both the beach
+and an approach of about 1 km on foot. Keeping the canonical pin at the beach
+and accepting that routing is materially removed from it, and treating the
+start of the walk as relevant access metadata, are both defensible. Such a
+Place carries a workflow review reason (`destination_vs_access_ambiguous`)
+while its durable `roadAccess` stays unset until Douglas decides.
+
+**Decision currency.** A human road-access decision is bound to the
+canonical-location fingerprint it was made at. If the canonical coordinate
+changes:
+
+- the decision becomes **stale**;
+- Stage 1 surfaces the Place for reconsideration;
+- **Stage 2 does not route the Place using a stale decision**; the decision
+  must be reconfirmed or changed first;
+- the road-access state and any road-access point are never changed
+  automatically, and no ORS call occurs. A pin move simply creates
+  deterministic Stage 1 work, which is practical because canonical pin changes
+  are exceptional.
+
+## Road-access points
+
+A road-access point is **the genuine vehicle-access location that directly
+serves a Place**. It is not the road location from which a multi-stage walking
+journey eventually reaches the Place. That journey is topology (see Mercer
+Bay).
+
+- **A dedicated concept, not a GeoEntity** (working name
+  `GeoRoadAccessPoint`). It has:
+  - a stable UUID;
+  - a PostGIS location and coordinate fingerprint;
+  - provenance;
+  - human verification at a fingerprint;
+  - audit timestamps.
+  It has no editorial identity. It is not a Place, is not published, never
+  appears in Pin Review or Nearby, and takes no part in topology.
+- **Shared.** One road-access point may serve several Places or Accommodation
+  records (for example one regional-park car park serving a beach, a historic
+  house and two walks). This avoids duplicating routing coordinates and is
+  expected.
+- **Coordinate coincidence does not imply identity.** A road-access point may
+  sit at exactly the same coordinate as a GeoEntity, for example a trailhead
+  Place that is also the vehicle access for a nearby beach. These are
+  different facts and coexist. Nothing automatically merges them, creates
+  topology, creates a Place, or infers identity.
+- **Accommodation** may use road-access points, for example a long driveway
+  whose entrance is the legitimate routing endpoint. The Accommodation's
+  canonical coordinate is never moved to make routing easier. Bookit
+  coordinate synchronisation is a separate integration concern.
+- **Lifecycle:**
+  - Created or placed by a human in Stage 1. Its placement is its verification
+    at that fingerprint.
+  - Moving it changes its own fingerprint, which makes road evidence
+    calculated from or to that endpoint stale.
+  - Changing a referencing Place's canonical pin makes that Place's road-access
+    decision stale (see *Decision currency*), but never moves the access point.
+- **Not `accessed_via`.** `accessed_via` (rejected) was a Place → gateway
+  relationship used to inherit distance. A road-access point is only the
+  endpoint for the Place's own road evidence. No road distance is ever
+  manufactured by combining road distance → access point → walking distance
+  → Place.
 
 **Distance candidates are not relationships.** Candidate generation for
 distance enrichment is derived, transient processing state. It is never stored
@@ -199,19 +437,82 @@ as topology.
 ## Distance/access model
 
 - The access graph stores **actual, defensible calculated evidence**: one row
-  per directed pair and travel mode, with endpoint fingerprints at calculation
-  time, route distance and duration, provider provenance (`ors_matrix`,
-  `openroute`, `manual`, `estimated`), status, and — for road evidence — the
-  ORS snap distance and snapped point of each endpoint.
+  per directed pair and travel mode, with:
+  - endpoint fingerprints at calculation time;
+  - route distance and duration;
+  - routing-provider provenance (`ors_matrix`, and the legacy `openroute`
+    Directions pass);
+  - for road evidence, the ORS snap distance and snapped point of each
+    endpoint.
+- **Routing endpoint.** Road evidence for a Place uses its road-access
+  endpoint: the canonical location (`direct`) or its road-access point
+  (`access_point`). Places with `none` are never routed. Each evidence row
+  records the endpoint used and that endpoint's fingerprint, so a moved
+  access point, or a change between `direct` and `access_point`, makes the
+  evidence stale by the usual fingerprint rule.
 - **All useful calculated pairs are retained**, regardless of whether they are
   selected into Nearby Places. Nearby is one consumer of the graph.
-- **Valid calculated evidence:** `route_status IN ('ok','manual','needs_review')
-  AND route_km IS NOT NULL`.
+- **Crow-flight is never road evidence.** Straight-line distance is used
+  internally for candidate discovery and diagnostics (for example road/crow
+  ratios) only. It is never stored as access evidence, never published as a
+  Nearby distance, and never substitutes for missing road evidence.
+- **Road outcome for a pair:**
+  - a credible measured road connection;
+  - no road connection found;
+  - human review required.
+  Provider observations (route returned, no route, endpoint unsnappable, zero
+  distance, snap distances) are evidence. A human conclusion such as "this
+  Place legitimately has no road connection" is recorded separately from them.
+- **Observation, assessment and decision are separate layers.**
+  - **Provider observation:** what an actual routing provider returned, kept
+    unchanged. This includes the outcome (route, no route, endpoint
+    unsnappable, zero distance), measured distance and duration, endpoint snap
+    observations, provider and calculation time.
+  - **Policy assessment:** whether the observation is credible under a named
+    policy version, with reason codes.
+  - **Human decision:** for example, accepting evidence, or confirming that no
+    road connection exists, recorded with the deciding human and the endpoint
+    fingerprints it applies to.
+
+  Because observations are never rewritten, old evidence can be reassessed
+  under an improved policy.
+- **Valid provider evidence** is a technically usable observation from an
+  actual routing provider: a measured, positive distance with duration,
+  endpoint observations and provider provenance. **Valid is not credible.**
+- **Credible road evidence** is valid provider evidence that also satisfies the
+  current credibility policy. Only credible evidence (or evidence a human has
+  explicitly accepted) is used for Nearby and distance reasoning.
+  - A historical `needs_review` status never counts as credible automatically.
+    It covers very different cases:
+    - legitimate routes flagged only by the historical road/crow ratio rule;
+    - endpoint snap concerns;
+    - same-snap and zero-distance observations;
+    - genuinely questionable evidence.
+  - Each case is reassessed under the permanent policy. That reassessment is a
+    separate, later task.
+  - The web-era predicate `route_status IN ('ok','manual','needs_review') AND
+    route_km IS NOT NULL` is historical. It describes *valid* rows, not
+    credible ones.
+- **Manual and estimated distances are retired.** A human may confirm:
+  - road-access semantics;
+  - topology;
+  - a road-access point's location;
+  - whether evidence is acceptable.
+
+  A human never enters or estimates kilometres as road evidence. Historical
+  `manual` and `estimated` rows (including the two Rangatira estimates) remain
+  legacy/archive data during migration. They are never permanent measured
+  road evidence, and stay historical until replaced by genuine measured
+  evidence.
 - **Road-evidence credibility policy**
   (`DEFAULT_ROAD_EVIDENCE_POLICY.maxCredibleSnapM = 100`). A Matrix road result
-  is credible only when the distance is > 0, both endpoints snap within 100 m,
-  and the endpoints snap to different road points. Otherwise the pair is
-  recorded as road-routing review evidence with no road distance.
+  is credible only when:
+  - the distance is > 0;
+  - both endpoints snap within 100 m;
+  - the endpoints snap to different road points.
+
+  Otherwise the observation is retained, and the pair is assessed as needing
+  road-routing review; it contributes no credible road distance.
   - It **is** a road-routing credibility threshold, and potentially an anomaly
     signal when Pin Review is deliberately run.
   - It **is not** a universal coordinate-validity rule, a requirement that
@@ -230,22 +531,29 @@ as topology.
 
 ## Nearby derivation
 
-Nearby Places is derived from relationships and applicable distance evidence,
-in this order:
+**Nearby proximity is road-based.** Nearby Places is derived (in Stage 2) from
+human selections, structural relationships and road evidence, in this order:
 
-1. **Structural relationships first.** Human `manual` entries and
-   `departure_point` always rank first, then the structural buckets ranked by
-   source page type (the existing `bucketRank`: supercluster, route network,
-   hub, track, place).
-2. **Applicable distance evidence second.** Distance ranks candidates and
-   identifies additional Nearby Places that Stage 1 did not find. For a pair
-   A→B: use valid calculated A→B evidence; else valid calculated B→A evidence;
-   else crow-flight. Never average directions; when both exist, source →
-   candidate wins even if the reverse is shorter.
-3. **Remaining proximity candidates** within the existing pool rules.
+1. **Human and structural selections first.**
+   - Manual Nearby positions assigned by Douglas in Stage 2 and
+     `departure_point` always rank first.
+   - Then the structural buckets, ranked by source page type (the existing
+     `bucketRank`: supercluster, route network, hub, track, place).
+   - Human structural or manual selections may occupy all six positions and
+     are never displaced by distance.
+2. **Road evidence fills only the remaining positions.** For a pair A→B, use
+   credible (or human-accepted) A→B road evidence; otherwise credible (or
+   human-accepted) B→A road evidence. Never
+   average directions. When both exist, source → candidate wins even if the
+   reverse is shorter. A candidate with no credible road evidence in either
+   direction is not distance-ranked: its outcome is "no road connection found"
+   or human review. **There is no crow-flight fallback.**
 
-Structural relationships do not require road-distance evidence to be included
-or ranked.
+Places whose `roadAccess` is `none` take no part in road-distance ranking,
+either as source or as candidate. Their Nearby Places come from structure and
+human selection. Structural relationships do not require road-distance
+evidence to be included or ranked. If fewer than six sensible Places exist,
+positions stay empty rather than being filled by straight-line proximity.
 
 The result is stored in the platform as a **Nearby proposal** recording the
 inputs it used (relationship and access evidence fingerprints). A human
@@ -273,8 +581,9 @@ not blocked because Pin Review has not been run.
 3. **Suppress.** Two kinds of case are not shown:
    - cases already human-verified at the **same fingerprint**;
    - cases whose apparent anomaly is adequately explained by **confirmed
-     topology** (connected-track or network membership, island access,
-     departure relationships, confirmed non-road features).
+     topology or road-access semantics** (connected-track or network
+     membership, island access, departure relationships, `roadAccess` of
+     `none` or `access_point`).
 
    Re-review occurs only when the fingerprint changes or new, stronger evidence
    appears.
@@ -298,34 +607,94 @@ Place Processing presents every entity with outstanding geographic work
 deterministic, incremental and resumable. Re-running it processes state gaps,
 not completed current work.
 
-**Stage 1 — classification and topology**
+**Stage 1 — geographic semantics.** Stage 1 answers: *what is this Place, how
+is it connected to other Places, and how should road routing treat it?* It
+owns:
 
-1. Discover entities with gaps (new, unclassified, stale or incomplete).
-2. Propose classification from deterministic evidence; a human confirms or
-   amends it.
+- classification;
+- structural topology;
+- road-access semantics;
+- road-access points;
+- human confirmation of all four.
+
+1. Discover entities with gaps (new, unclassified, topology unreviewed,
+   road access unassessed or due for reconsideration).
+2. Propose classification from deterministic evidence. A human confirms or
+   amends it, individually or in bulk.
 3. Propose structural relationships using the existing vocabulary and signals:
-   - cluster, hub and supercluster membership;
+   - supercluster, cluster and hub membership (superclusters through the
+     member workflow above);
    - road/road-hub relationships;
    - track/track-network and river-network relationships;
    - connected Places;
    - island/departure relationships.
 
-   A human confirms them.
-4. Structural relationships establish the first Nearby candidates and ranking.
+   A human confirms or rejects them.
+4. Propose road access:
+   - deterministic rules from confirmed classification;
+   - otherwise evidence (for example current road snap evidence, topology,
+     article excerpts).
 
-**Stage 2 — distance/access enrichment**
+   A human confirms `direct`, places or reuses a road-access point, or records
+   `none` with a reason. Ambiguous cases carry a workflow review reason and
+   stay unset.
+5. A Place that appears to have a wrong pin is referred to Pin Review. Stage 1
+   never edits a canonical coordinate.
 
-1. Identify appropriate candidate pairs (existing pool rules: Places within
-   the configured radius; Accommodation within 30 km).
-2. Reuse current distance evidence (fingerprints match).
+Stage 1 performs no ORS or Matrix work. It may display existing road evidence
+as context for a proposal, but all routing happens in Stage 2.
+
+**Workspace.** A purpose-built tool, not a reproduction of Studio:
+
+- a queue of Places with gaps;
+- a map showing the selected pin, related Places with their typed
+  relationships, road-access points (with a line to the Place) and existing
+  nearby access points available for reuse;
+- a detail panel with classification, relationships, road access and short
+  article excerpts shown as evidence;
+- a completion action.
+
+Every value is labelled as an existing human-approved fact, a system proposal,
+or unresolved.
+
+**Bulk confirmation.** Douglas is not required to click through obvious cases
+one by one to create human provenance.
+- Deterministic or inferred proposals, with their evidence, can be reviewed
+  and confirmed in bulk; exceptions are handled individually.
+- *Proposal or inference → human confirmation (individual or bulk) → durable
+  fact.*
+- Historical ORS success is evidence for a proposal. It is never persisted as
+  if it were human geographic knowledge.
+- Heuristics are never silently promoted into canonical metadata.
+
+**Stage 2 — road evidence and Nearby Places.** Stage 2 owns:
+
+- spatial (crow-flight) candidate discovery, internal only;
+- road-distance evidence and Matrix execution;
+- provider observations, measured road connections, no-road-connection
+  outcomes and road-evidence review;
+- manual Nearby positions;
+- the derived Nearby six;
+- final review and publication.
+
+1. Identify candidate pairs. Spatial proximity is used internally for
+   discovery only. Accommodation uses its own profile (the existing 30 km
+   rule).
+   - Only Places with a current (non-stale) road-access decision of `direct`
+     or `access_point` are routed.
+   - `none` Places are never routed.
+   - Unset or stale decisions wait for Stage 1.
+2. Reuse current road evidence (endpoint fingerprints match).
 3. Determine the missing applicable pairs. Structural pairs are not routed
    merely because they exist.
-4. Explicitly calculate missing road distances through a single, quota-gated
-   action using the existing Matrix engine.
+4. Explicitly calculate missing road evidence through a single, quota-gated
+   action using the existing Matrix engine, at each Place's road-access
+   endpoint.
 5. Retain all useful calculated pairs.
-6. Use applicable distances to rank candidates and fill Nearby gaps.
-7. Produce a Nearby proposal.
-8. Review it.
+6. Review non-credible road evidence.
+7. Douglas assigns any manual Nearby positions. Road evidence fills only the
+   remaining positions (see Nearby derivation).
+8. Produce and review a Nearby proposal.
 9. After explicit approval, publish the approved Nearby result to Sanity
    through the existing controlled-write approach.
 
@@ -338,22 +707,41 @@ rules are a product decision still to be made.
 - **Fingerprint mismatch is the fundamental stale signal.** Access evidence
   whose stored endpoint fingerprint differs from the current fingerprint is
   stale, row by row.
-- A pin change therefore makes the dependent access evidence stale, makes those
-  pairs eligible for targeted recalculation, and may make dependent Nearby
-  output stale (its recorded inputs no longer match).
+- A pin change therefore:
+  - makes the dependent access evidence stale;
+  - makes the Place's road-access decision stale, so Stage 2 does not route it
+    until Stage 1 reconfirms the decision;
+  - may make dependent Nearby output stale (its recorded inputs no longer
+    match).
+
+  Once the decision is current again, the stale pairs become eligible for
+  targeted recalculation. Moving a road-access point stales the evidence that
+  used it as an endpoint.
 - **No ORS call occurs automatically.** Stale work appears as deterministic
   gaps in Place Processing, which supports both batch recalculation and
   targeted recalculation for a single Place.
 - Processing state is **derived from gaps**, not from creation dates.
-  - Entity states: not yet registered; location missing; awaiting
-    classification; relationships incomplete; distances incomplete or stale;
-    road-routing evidence awaiting review; Nearby proposal awaiting review;
-    current.
-  - Coordinate verification (unverified / verified at fingerprint) is tracked
-    alongside these states, not as one of them.
+  - Entity states:
+    - not yet registered;
+    - location missing;
+    - awaiting classification;
+    - topology unreviewed;
+    - road access unassessed or due for reconsideration;
+    - Stage 1 complete;
+    - distances incomplete or stale;
+    - road evidence awaiting review;
+    - Nearby proposal awaiting review;
+    - current.
+  - Coordinate verification (unverified / verified at fingerprint) and Pin
+    Review referrals are tracked alongside these states, not as one of them.
+  - Workflow review reasons (for example `destination_vs_access_ambiguous`)
+    are processing state, never durable geographic facts.
   - Only facts that cannot be derived from data presence are recorded
-    explicitly: classification decisions, completed relationship runs (with
-    their inputs hash) and Nearby decisions.
+    explicitly:
+    - classification, topology-review and road-access decisions (road access
+      with the canonical-location fingerprint it was made at);
+    - completed relationship runs (with their inputs hash);
+    - Nearby decisions.
 
 ## Sanity projection model
 
@@ -370,6 +758,14 @@ rules are a product decision still to be made.
 Nothing is removed from Sanity until the tools are authoritative and every
 consumer has been verified.
 
+- **`placeType` publication.** Confirmed classifications reach Sanity through
+  an explicit, reviewed batch publication analogous to Pin Review's controlled
+  coordinate write, not through uncontrolled dual writers.
+- **Road-access metadata stays in the platform.** Road-access semantics and
+  road-access points are not projected into Sanity merely because future AI
+  will use them. They are projected only if a public or editorial consumer
+  needs them.
+
 ## Migration and transition strategy
 
 - The web-era `place_access` database may remain temporarily behind a
@@ -379,6 +775,19 @@ consumer has been verified.
   - confirmed structural entries in Sanity `nearbyPlaces` (primary source);
   - the structural rows of `place_relationship`;
   - island and departure configuration currently in code.
+
+  Seeding rules:
+  - Symmetric connections approved in both directions become one connection.
+  - Historical supercluster `article_reference` entries become *proposed*
+    members in the supercluster member workflow, not automatic memberships.
+  - Historical `manual` entries become Stage 2 manual Nearby positions, not
+    topology.
+  - Rows found only in `place_relationship`, and contradictory pairs (for
+    example two hubs each listed as a member of the other), go to review.
+- **Classification** is seeded from existing Sanity `placeType` values.
+  Missing values are proposed for review or bulk confirmation.
+- **Road access** is not seeded as fact. Classification rules and historical
+  road evidence produce proposals for human (bulk) confirmation.
 - **Candidate-log rows** (`distance` type in `place_relationship`) are archived
   as a read-only historical export. They are not migrated into the graph.
 - **`place_access`** migrates with its fingerprints unchanged (they are
@@ -396,7 +805,11 @@ consumer has been verified.
 - directional resolver;
 - Nearby candidate selector and `bucketRank`;
 - text signals and connected-track/network logic;
-- supercluster pool;
+- supercluster pool — only for candidate discovery, article-anchor evidence,
+  presenting possible members and map context. Its proximity fallback is
+  contextual evidence only and never establishes membership. Membership
+  follows the supercluster member workflow (evidence → candidate list → map →
+  human selection/exclusion → confirmed `supercluster_member`);
 - island/departure logic (as data);
 - Matrix planner, response mapping, journal/resume and quota gates;
 - the Nearby review screen and controlled Sanity write path;
@@ -412,11 +825,51 @@ consumer has been verified.
 - the ORS Directions routing pass;
 - the per-place generation scripts, once Place Processing is authoritative.
 
+## Semantic substrate for AI
+
+Classification, topology and road-access metadata serve more than Nearby
+Places. They are the structured substrate that future deterministic and AI
+reasoning (map reasoning, itinerary reasoning) reads.
+
+**Facts it should read directly:**
+
+- this Place is directly road accessible;
+- this Place has a distinct vehicle-access coordinate;
+- this beach requires a walk from road access;
+- this Place lies inside a named track network, connected to another named
+  track;
+- this Place belongs to this supercluster;
+- this river hub is a corridor, not a road destination;
+- these Places share a vehicle-access point;
+- this Accommodation has a long driveway and a distinct routing entrance;
+- this fact has been human verified.
+
+**Sources it must never infer them from:**
+
+- article prose;
+- ORS failures or snap distances;
+- Nearby ranking;
+- proximity to a representative hub or supercluster pin.
+
+**Authority levels.** Article text and AI may later supply evidence and
+proposals. Authority is distinguished using the platform's existing
+conventions:
+- *human-confirmed fact* — confirmed status, deciding human and time;
+- *imported human fact* — a migration actor reference;
+- *deterministic system inference* — computed, not stored as a decision;
+- *proposal* — proposed status.
+
 ## Consequences
 
 - Nearby Places stops being the relationship authority. Its Sanity data becomes
   a projection, which removes the current circularity (relationships stored
   inside the output derived from them).
+- Nearby proximity is road-based. Places without credible road evidence are
+  not ranked by straight-line distance, so some Nearby lists will have fewer
+  distance-filled positions.
+- Canonical location, road access and topology are separate facts. Pins are
+  no longer distorted to suit routing, and Places such as Mercer Bay are
+  described correctly.
 - Coordinate correctness, topology and road credibility are separate. Track
   and network Places inside parks are no longer pushed toward roads.
 - Some structural pairs will legitimately have no road distance; Nearby still
@@ -430,20 +883,50 @@ consumer has been verified.
 
 ## Implementation sequence
 
-1. Resolve the blocking decisions below; accept this ADR.
-2. Design the foundation schema in `tripideas-api` (Prisma + PostGIS,
-   shared-schema discipline): GeoEntity, coordinate verification,
-   classification, structural relationship, access evidence, Nearby
-   proposal/decision, processing records.
-3. Add a repository/service interface over the web-era access graph for the
+1. Accept this ADR (done 2026-10-04).
+2. Foundation schema in `tripideas-api` (Prisma + PostGIS, shared-schema
+   discipline): GeoEntity, coordinate verification, classification, structural
+   relationship, access evidence (done).
+3. Pin Review (done).
+4. **Stage 1A.1 — Schema foundation** (next). Only the approved domain/schema
+   foundation for:
+   - road-access semantics;
+   - road-access-point metadata;
+   - explicit `supercluster_member`;
+   - topology review/completion state;
+   - separation of provider observation, policy assessment and human decision
+     where the access-evidence model requires it.
+
+   No UI.
+5. **Stage 1A.2 — Seeding dry run.** A deterministic, read-only seeding process
+   reporting:
+   - imported classifications;
+   - structural relationships available from approved Sanity Nearby data;
+   - deduplication and normalisation;
+   - proposed `supercluster_member` migration;
+   - relationship exceptions requiring review;
+   - road-access proposals;
+   - ambiguous cases;
+   - likely road-access-point cases;
+   - actual population sizes.
+
+   No canonical writes without a later explicit approval step.
+6. **Review checkpoint.** Inspect the real dry-run populations before designing
+   the bulk-review workspace. The dry run may change which UI is most
+   efficient.
+7. **Stage 1A.3 — Bulk review workspace.** Classification confirmation,
+   road-access confirmation, bulk confirmation and exception handling.
+8. **Stage 1B.** Topology editor, the supercluster candidate/member workflow,
+   road-access-point placement and reuse, and richer structural review
+   (including the `hub_connection` / `access_hub` semantic review before
+   either type is used).
+9. Add a repository/service interface over the web-era access graph for the
    transition.
-4. Build Pin Review.
-5. Build Place Processing Stage 1 (classification and topology; seed
-   relationships from Sanity and the relationship table).
-6. Build Place Processing Stage 2 (Matrix engine; Nearby proposal, review and
-   publication).
-7. Migrate the access graph; archive the candidate log.
-8. Retire A.1 tooling; deprecate Sanity workflow fields.
+10. Place Processing Stage 2: Matrix engine; road-evidence review; manual
+    Nearby positions; Nearby proposal, review and publication.
+11. Migrate the access graph (reassessing historical evidence under the
+    permanent policy); archive the candidate log.
+12. Retire A.1 tooling; deprecate Sanity workflow fields.
 
 ## Rejected alternatives
 
@@ -457,7 +940,30 @@ consumer has been verified.
 - **A permanent rejected-coordinate state.** A coordinate is unverified or
   verified at a fingerprint; a wrong pin is moved.
 - **Creating a parallel `accessed_via` topology.** The existing connected-track
-  and network relationships already describe it.
+  and network relationships already describe it. Road-access points are not a
+  revival of it: they are routing endpoints for a Place's own road evidence,
+  not relationships, and never combine with walking segments.
+- **Crow-flight as a Nearby distance or fallback.** Straight-line distance is
+  internal discovery and diagnostic evidence only.
+- **Representing road-access points as GeoEntities.** They are routing
+  metadata, not Places. Coordinate coincidence with a Place does not imply
+  identity.
+- **A permanent `unknown` road-access value, or an `ambiguous` state.** Unset
+  means not yet assessed; ambiguity is workflow review state.
+- **Deciding road access from a snap-distance threshold.** The 100 m policy is
+  an evidence threshold and review trigger, not geographic truth.
+- **Inferring `none` from island location.** Islands may have their own road
+  networks.
+- **Inferring supercluster membership from distance to the supercluster pin.**
+  Membership is selected by a human from editorial evidence.
+- **Storing manual Nearby choices as topology.** They are Stage 2 ranking
+  decisions.
+- **Treating historical `needs_review` (or any valid-but-unassessed) evidence
+  as credible.** Credibility is a policy assessment over preserved provider
+  observations.
+- **Manually entered or estimated road distances.** Humans confirm semantics,
+  topology, access-point locations and evidence acceptability, never
+  kilometres.
 - **Manufacturing road distances through connected-track topology or gateways**
   (including the unused `route_inherited` mechanism). The distance graph holds
   only defensible calculated evidence.
